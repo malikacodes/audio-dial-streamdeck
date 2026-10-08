@@ -1,0 +1,30 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!-- Elgato's settings components. Each one saves into this dial's
+         settings under the name in "setting". -->
+    <script src="sdpi-components.js"></script>
+  </head>
+  <body>
+    <!-- The two devices a tap switches between. Both lists come from the
+         plugin ("getDevices"), which gets them from macOS, so anything
+         that can play sound on this Mac shows up. -->
+    <sdpi-item label="Primary">
+      <sdpi-select setting="primary" datasource="getDevices" hot-reload loading="Loading devices…" placeholder="Pick a device"></sdpi-select>
+    </sdpi-item>
+    <sdpi-item label="Secondary">
+      <sdpi-select setting="secondary" datasource="getDevices" hot-reload loading="Loading devices…" placeholder="Pick a device"></sdpi-select>
+    </sdpi-item>
+    <!-- How many percent one click of the dial moves the volume. -->
+    <sdpi-item label="Step size">
+      <sdpi-select setting="step" default="3">
+        <option value="1">1%</option>
+        <option value="2">2%</option>
+        <option value="3">3%</option>
+        <option value="5">5%</option>
+        <option value="10">10%</option>
+      </sdpi-select>
+    </sdpi-item>
+  </body>
+</html>

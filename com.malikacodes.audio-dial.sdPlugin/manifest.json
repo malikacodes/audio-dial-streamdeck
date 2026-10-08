@@ -1,0 +1,49 @@
+{
+  "$schema": "https://schemas.elgato.com/streamdeck/plugins/manifest.json",
+  "UUID": "com.malikacodes.audio-dial",
+  "Name": "Audio Dial",
+  "Author": "Malika Codes",
+  "Description": "One dial for sound: turn for volume, tap to switch between two output devices, press to mute.",
+  "Version": "0.1.0.0",
+  "SDKVersion": 3,
+  "CodePath": "bin/plugin.js",
+  "Icon": "imgs/plugin",
+  "CategoryIcon": "imgs/output",
+  "Category": "Audio Dial",
+  "Nodejs": {
+    "Version": "24"
+  },
+  "Software": {
+    "MinimumVersion": "7.1"
+  },
+  "OS": [
+    {
+      "Platform": "mac",
+      "MinimumVersion": "13"
+    }
+  ],
+  "Actions": [
+    {
+      "UUID": "com.malikacodes.audio-dial.output",
+      "Name": "Output Dial",
+      "Tooltip": "Turn for volume, tap the strip to switch between two output devices, press to mute.",
+      "Icon": "imgs/output",
+      "Controllers": ["Encoder"],
+      "UserTitleEnabled": false,
+      "Encoder": {
+        "layout": "layouts/strip.json",
+        "TriggerDescription": {
+          "Rotate": "Volume",
+          "Push": "Mute",
+          "Touch": "Switch device"
+        }
+      },
+      "PropertyInspectorPath": "ui/devices.html",
+      "States": [
+        {
+          "Image": "imgs/output"
+        }
+      ]
+    }
+  ]
+}
