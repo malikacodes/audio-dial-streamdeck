@@ -1,0 +1,15 @@
+{
+  "name": "audio-dial",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "A Stream Deck dial that turns the volume and taps between two output devices",
+  "dependencies": {
+    "@elgato/streamdeck": "3.0.1"
+  },
+  "scripts": {
+    "check": "for f in src/*.js test/*.js scripts/*.mjs; do node --check \"$f\" || exit 1; done",
+    "test": "node --test test/*.test.js",
+    "helper": "node scripts/build-helper.mjs"
+  }
+}
