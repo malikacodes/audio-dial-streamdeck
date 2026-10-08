@@ -22,12 +22,20 @@ export class Audio extends EventEmitter {
 
     // The helper prints one JSON line per report, so I read line by line.
     createInterface({ input: helper.stdout }).on("line", line => {
+      let report;
       try {
-        this.devices = JSON.parse(line).devices;
+        report = JSON.parse(line);
       } catch {
         this.logger.warn(`Helper sent something that isn't JSON: ${line}`);
         return;
       }
+      // Two kinds of line come back: the list of open apps, which is only
+      // ever an answer to openApps(), and the device report.
+      if (report.apps) {
+        this.emit("apps", report.apps);
+        return;
+      }
+      this.devices = report.devices;
       this.emit("change");
     });
     createInterface({ input: helper.stderr }).on("line", line => this.logger.warn(`Helper: ${line}`));
@@ -51,6 +59,24 @@ export class Audio extends EventEmitter {
 
   send(command) {
     if (this.helper?.stdin.writable) this.helper.stdin.write(JSON.stringify(command) + "\n");
+  }
+
+  // The apps that are open right now, as [{ id, name }]. If the helper
+  // never answers, the settings page gets an empty list instead of
+  // spinning forever.
+  openApps() {
+    return new Promise(resolve => {
+      const giveUp = setTimeout(() => {
+        this.off("apps", answer);
+        resolve([]);
+      }, 2000);
+      const answer = apps => {
+        clearTimeout(giveUp);
+        resolve(apps);
+      };
+      this.once("apps", answer);
+      this.send({ cmd: "apps" });
+    });
   }
 
   makeDefault(device) {

@@ -7,9 +7,12 @@
 //        {"cmd":"default","id":"<device id>"}
 //        {"cmd":"volume","id":"<device id>","value":40}
 //        {"cmd":"mute","id":"<device id>","value":true}
+//        {"cmd":"apps"}
 // Out: one JSON line on stdout with every output device, after each command
 //      and whenever something changes on its own (volume keys, menu bar,
-//      headphones plugged in).
+//      headphones plugged in). "apps" is the exception: it answers with
+//      one line listing the apps that are open.
+import AppKit
 import AudioToolbox
 import CoreAudio
 import Foundation
@@ -143,11 +146,30 @@ func device(withID uid: String) -> AudioObjectID? {
     outputDevices().first { text($0, kAudioDevicePropertyDeviceUID) == uid }
 }
 
+// The apps with a window or a Dock icon, for the App Volume dial's picker.
+// "regular" leaves out the hundreds of background helpers a Mac runs, which
+// would bury the three apps I actually want.
+func reportApps() {
+    var seen = Set<String>()
+    var apps: [[String: String]] = []
+    for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular {
+        guard let id = app.bundleIdentifier, let name = app.localizedName, seen.insert(id).inserted else { continue }
+        apps.append(["id": id, "name": name])
+    }
+    apps.sort { $0["name"]!.localizedCaseInsensitiveCompare($1["name"]!) == .orderedAscending }
+    guard let json = try? JSONSerialization.data(withJSONObject: ["apps": apps]) else { return }
+    FileHandle.standardOutput.write(json + "\n".data(using: .utf8)!)
+}
+
 func run(_ line: String) {
     guard let data = line.data(using: .utf8),
           let command = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
           let name = command["cmd"] as? String else {
         complain("Not a command: \(line)")
+        return
+    }
+    if name == "apps" {
+        reportApps()
         return
     }
     if name != "list" {

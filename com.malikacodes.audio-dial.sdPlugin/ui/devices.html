@@ -5,6 +5,14 @@
     <!-- Elgato's settings components. Each one saves into this dial's
          settings under the name in "setting". -->
     <script src="sdpi-components.js"></script>
+    <!-- On its own a color swatch stretches across the whole row, which is
+         a lot of pink. This keeps it to a small box. -->
+    <style>
+      sdpi-color {
+        display: block;
+        width: 36px;
+      }
+    </style>
   </head>
   <body>
     <!-- The two devices a tap switches between. Both lists come from the

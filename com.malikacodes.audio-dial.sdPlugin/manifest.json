@@ -3,7 +3,7 @@
   "UUID": "com.malikacodes.audio-dial",
   "Name": "Audio Dial",
   "Author": "Malika Codes",
-  "Description": "One dial for sound: turn for volume, tap to switch between two output devices, press to mute.",
+  "Description": "Sound on a dial: turn for volume, tap to switch between two output devices, and a second dial for one app's volume.",
   "Version": "0.1.0.0",
   "SDKVersion": 3,
   "CodePath": "bin/plugin.js",
@@ -42,6 +42,27 @@
       "States": [
         {
           "Image": "imgs/dial"
+        }
+      ]
+    },
+    {
+      "UUID": "com.malikacodes.audio-dial.app",
+      "Name": "App Volume",
+      "Tooltip": "Turn for one app's volume, press to mute it. Needs the FineTune app.",
+      "Icon": "imgs/app",
+      "Controllers": ["Encoder"],
+      "UserTitleEnabled": false,
+      "Encoder": {
+        "layout": "layouts/strip.json",
+        "TriggerDescription": {
+          "Rotate": "App volume",
+          "Push": "Mute"
+        }
+      },
+      "PropertyInspectorPath": "ui/app.html",
+      "States": [
+        {
+          "Image": "imgs/app-dial"
         }
       ]
     }
