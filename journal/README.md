@@ -9,3 +9,4 @@ out twice.
 | 01 | 2026-10-08 | [The dial that switched screens but not sound](01-one-dial-for-sound.md) |
 | 02 | 2026-10-08 | [First run on the real dial](02-first-run-on-the-dial.md) |
 | 03 | 2026-10-08 | [Volume for one app](03-volume-for-one-app.md) |
+| 04 | 2026-10-08 | [Stuck between two volumes](04-stuck-between-two-volumes.md) |
