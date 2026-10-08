@@ -3,12 +3,14 @@ import streamDeck, { action, SingletonAction } from "@elgato/streamdeck";
 import { Audio } from "./audio.js";
 import { find, picks, tapTarget, stepVolume, refreshPicks } from "./devices.js";
 import { drawStrip } from "./strip.js";
+import { FineTune } from "./finetune.js";
 
 const NOTICE_MS = 2000;
 
 // The helper is compiled into the plugin folder by "npm run helper".
 const helperPath = fileURLToPath(new URL("../com.malikacodes.audio-dial.sdPlugin/bin/audio", import.meta.url));
 const audio = new Audio(helperPath, streamDeck.logger);
+const fineTune = new FineTune(streamDeck.logger);
 
 // Stream Deck takes an image as a base64 "data URI", which is the whole
 // picture packed into one long string.
@@ -127,8 +129,90 @@ class OutputDial extends SingletonAction {
   }
 }
 
+// One app's volume, through FineTune (see finetune.js). There's no tap
+// here on purpose: inside a dial stack the tap or the press belongs to the
+// stack, and this dial is the one I stack.
+class AppDial extends SingletonAction {
+  settings = new Map();
+  lastImages = new Map();
+
+  async onWillAppear(ev) {
+    this.settings.set(ev.action.id, ev.payload.settings ?? {});
+    await this.render(ev.action);
+  }
+
+  async onDidReceiveSettings(ev) {
+    const settings = ev.payload.settings ?? {};
+    this.settings.set(ev.action.id, settings);
+
+    // The settings page only saves the app's id. I save its name next to
+    // it, so the strip can still say "Music" when Music isn't open.
+    const app = (await audio.openApps()).find(a => a.id === settings.app);
+    if (app && app.name !== settings.appName) {
+      const named = { ...settings, appName: app.name };
+      this.settings.set(ev.action.id, named);
+      await ev.action.setSettings(named);
+    }
+    await this.render(ev.action);
+  }
+
+  onWillDisappear(ev) {
+    this.settings.delete(ev.action.id);
+    this.lastImages.delete(ev.action.id);
+  }
+
+  async onDialRotate(ev) {
+    const { app, step } = this.settings.get(ev.action.id) ?? {};
+    if (!app) return;
+    const { volume, muted } = fineTune.state(app);
+    fineTune.setVolume(app, stepVolume(volume, ev.payload.ticks, Number(step) || 3));
+    // Same as the Output Dial: turning a muted dial should make sound.
+    if (muted) fineTune.setMuted(app, false);
+    await this.render(ev.action);
+  }
+
+  async onDialDown(ev) {
+    const { app } = this.settings.get(ev.action.id) ?? {};
+    if (!app) return;
+    fineTune.setMuted(app, !fineTune.state(app).muted);
+    await this.render(ev.action);
+  }
+
+  // The app list for the settings page: what's open now, plus the app
+  // this dial is already set to if it happens to be closed.
+  async onSendToPlugin(ev) {
+    if (ev.payload?.event !== "getApps") return;
+    const { app, appName } = this.settings.get(ev.action.id) ?? {};
+    const items = (await audio.openApps()).map(a => ({ value: a.id, label: a.name }));
+    if (app && !items.some(item => item.value === app)) items.push({ value: app, label: `${appName || app} (not open)` });
+    await streamDeck.ui.sendToPropertyInspector({ event: "getApps", items });
+  }
+
+  async render(target) {
+    const { app, appName, volumeColor } = this.settings.get(target.id) ?? {};
+    let view;
+    if (fineTune.missing) view = { notice: "FineTune isn't installed" };
+    else if (!app) view = { notice: "Pick an app" };
+    else view = { device: { name: appName || app, hasVolume: true, ...fineTune.state(app) }, volumeColor, dots: false };
+
+    const image = asImage(drawStrip(view));
+    if (this.lastImages.get(target.id) === image) return;
+    this.lastImages.set(target.id, image);
+    await target.setFeedback({ canvas: image });
+  }
+}
+
 const dial = new (action({ UUID: "com.malikacodes.audio-dial.output" })(OutputDial))();
+const appDial = new (action({ UUID: "com.malikacodes.audio-dial.app" })(AppDial))();
 streamDeck.actions.registerAction(dial);
+streamDeck.actions.registerAction(appDial);
+
+// FineTune's numbers changed, by this dial or by me in FineTune's menu.
+fineTune.on("change", () => {
+  for (const target of appDial.actions) {
+    appDial.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the app dial: ${error.message}`));
+  }
+});
 
 // Redraw every copy of the dial whenever anything about sound changes,
 // whoever changed it: the dial, the keyboard volume keys or the menu bar.
@@ -141,4 +225,5 @@ audio.on("change", () => {
 });
 
 audio.start();
+fineTune.start();
 streamDeck.connect();

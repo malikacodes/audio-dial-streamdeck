@@ -24,13 +24,16 @@ function color(value) {
   return /^#[0-9a-f]{6}$/i.test(value ?? "") ? value : PINK;
 }
 
-// view is { device, slot, notice, volumeColor, switchColor }:
-//   device       the active output device from the helper, or null
+// view is { device, slot, notice, volumeColor, switchColor, dots }:
+//   device       what the dial is controlling, or null. For the Output
+//                Dial that's the active output device from the helper. For
+//                the App Volume dial it's an app, shaped the same way.
 //   slot         "primary", "secondary" or null when it's neither of my two
 //   notice       a short message that takes over the strip for a moment
 //   volumeColor  the volume bar
 //   switchColor  the dot for the device I'm on
-export function drawStrip({ device, slot, notice, volumeColor, switchColor }) {
+//   dots         false on the App Volume dial, which has nothing to switch
+export function drawStrip({ device, slot, notice, volumeColor, switchColor, dots = true }) {
   const bar = color(volumeColor);
   const dot = color(switchColor);
   const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100" font-family="${FONT}">`];
@@ -44,8 +47,10 @@ export function drawStrip({ device, slot, notice, volumeColor, switchColor }) {
 
     // Two dots, like the pair under the Audio Switcher key: the filled one
     // is the device I'm on. Neither is filled on a device outside my two.
-    parts.push(`<circle cx="172" cy="25" r="4" fill="${slot === "primary" ? dot : DIM}"/>`);
-    parts.push(`<circle cx="185" cy="25" r="4" fill="${slot === "secondary" ? dot : DIM}"/>`);
+    if (dots) {
+      parts.push(`<circle cx="172" cy="25" r="4" fill="${slot === "primary" ? dot : DIM}"/>`);
+      parts.push(`<circle cx="185" cy="25" r="4" fill="${slot === "secondary" ? dot : DIM}"/>`);
+    }
 
     if (!device.hasVolume) {
       // My monitor over HDMI: macOS has no volume for it at all.
