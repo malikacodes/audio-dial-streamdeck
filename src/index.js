@@ -119,7 +119,8 @@ class OutputDial extends SingletonAction {
     // The helper can report several times a second while a volume slider
     // is being dragged. Every setFeedback is a message to Stream Deck, so
     // a picture only goes out when it's different from the last one.
-    const image = asImage(drawStrip({ device, slot, notice: this.notices.get(target.id) }));
+    const { volumeColor, switchColor } = settings;
+    const image = asImage(drawStrip({ device, slot, notice: this.notices.get(target.id), volumeColor, switchColor }));
     if (this.lastImages.get(target.id) === image) return;
     this.lastImages.set(target.id, image);
     await target.setFeedback({ canvas: image });

@@ -21,8 +21,9 @@ turning the "LG" dial with the music still in my headphones. Very calming.
   two devices I'm on. It follows changes from anywhere, so the keyboard
   volume keys and the menu bar update it too.
 
-Primary, Secondary and the step size are in the dial's settings. The lists
-show every output device the Mac has.
+Primary, Secondary and the step size are in the dial's settings, along
+with a color for the volume bar and one for the dot. The lists show every
+output device the Mac has.
 
 ## Setup
 

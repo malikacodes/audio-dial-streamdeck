@@ -113,3 +113,22 @@ test("the strip says Muted, and admits when a device has no volume", () => {
 test("the strip survives awkward device names", () => {
   assert.match(drawStrip({ device: { ...headphones, name: "Me & My <Amp>" }, slot: null }), /Me &amp; My &lt;Amp&gt;/);
 });
+
+// The colors I pick in settings have to land on the right parts: the bar
+// is the volume, the dot is the switch. Mixing them up would be silly.
+test("the strip uses my colors for the volume bar and the active dot", () => {
+  const svg = drawStrip({ device: headphones, slot: "secondary", volumeColor: "#00ffaa", switchColor: "#aa00ff" });
+  assert.match(svg, /<rect[^>]*height="8"[^>]*fill="#00ffaa"/);
+  assert.match(svg, /cx="185"[^>]*fill="#aa00ff"/);
+  // The dot for the device I'm not on stays grey.
+  assert.match(svg, /cx="172"[^>]*fill="#5c5c62"/);
+});
+
+// Settings are just text. A broken value must not end up inside the SVG,
+// or the strip goes blank.
+test("a color that isn't a hex color falls back to pink", () => {
+  const svg = drawStrip({ device: headphones, slot: "primary", volumeColor: 'red" onload="x', switchColor: "" });
+  assert.doesNotMatch(svg, /onload/);
+  assert.match(svg, /<rect[^>]*height="8"[^>]*fill="#f2a7c3"/);
+  assert.match(svg, /cx="172"[^>]*fill="#f2a7c3"/);
+});

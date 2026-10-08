@@ -17,11 +17,22 @@ function short(name) {
   return name.length > 20 ? name.slice(0, 19).trimEnd() + "…" : name;
 }
 
-// view is { device, slot, notice }:
-//   device  the active output device from the helper, or null
-//   slot    "primary", "secondary" or null when it's neither of my two
-//   notice  a short message that takes over the strip for a moment
-export function drawStrip({ device, slot, notice }) {
+// The colors come from the dial's settings and go straight into the SVG,
+// so anything that isn't a plain hex color like #f2a7c3 falls back to pink
+// instead of breaking the picture.
+function color(value) {
+  return /^#[0-9a-f]{6}$/i.test(value ?? "") ? value : PINK;
+}
+
+// view is { device, slot, notice, volumeColor, switchColor }:
+//   device       the active output device from the helper, or null
+//   slot         "primary", "secondary" or null when it's neither of my two
+//   notice       a short message that takes over the strip for a moment
+//   volumeColor  the volume bar
+//   switchColor  the dot for the device I'm on
+export function drawStrip({ device, slot, notice, volumeColor, switchColor }) {
+  const bar = color(volumeColor);
+  const dot = color(switchColor);
   const parts = [`<svg xmlns="http://www.w3.org/2000/svg" width="200" height="100" viewBox="0 0 200 100" font-family="${FONT}">`];
 
   if (notice) {
@@ -33,8 +44,8 @@ export function drawStrip({ device, slot, notice }) {
 
     // Two dots, like the pair under the Audio Switcher key: the filled one
     // is the device I'm on. Neither is filled on a device outside my two.
-    parts.push(`<circle cx="172" cy="25" r="4" fill="${slot === "primary" ? PINK : DIM}"/>`);
-    parts.push(`<circle cx="185" cy="25" r="4" fill="${slot === "secondary" ? PINK : DIM}"/>`);
+    parts.push(`<circle cx="172" cy="25" r="4" fill="${slot === "primary" ? dot : DIM}"/>`);
+    parts.push(`<circle cx="185" cy="25" r="4" fill="${slot === "secondary" ? dot : DIM}"/>`);
 
     if (!device.hasVolume) {
       // My monitor over HDMI: macOS has no volume for it at all.
@@ -44,7 +55,7 @@ export function drawStrip({ device, slot, notice }) {
       const width = Math.round((device.volume / 100) * 172);
       parts.push(`<text x="14" y="64" fill="${device.muted ? DIM : "#ffffff"}" font-size="22" font-weight="600">${label}</text>`);
       parts.push(`<rect x="14" y="78" width="172" height="8" rx="4" fill="#2c2c30"/>`);
-      if (width > 0) parts.push(`<rect x="14" y="78" width="${Math.max(width, 8)}" height="8" rx="4" fill="${device.muted ? DIM : PINK}"/>`);
+      if (width > 0) parts.push(`<rect x="14" y="78" width="${Math.max(width, 8)}" height="8" rx="4" fill="${device.muted ? DIM : bar}"/>`);
     }
   }
 
