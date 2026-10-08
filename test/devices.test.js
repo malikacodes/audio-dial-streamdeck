@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { find, tapTarget, stepVolume, refreshPicks } from "../src/devices.js";
+import { find, tapTarget, stepVolume, turnFrom, shownVolume, refreshPicks, AIM_MS } from "../src/devices.js";
 import { drawStrip } from "../src/strip.js";
 
 // The same shape the helper reports. The USB id has the port number in
@@ -131,4 +131,59 @@ test("a color that isn't a hex color falls back to pink", () => {
   assert.doesNotMatch(svg, /onload/);
   assert.match(svg, /<rect[^>]*height="8"[^>]*fill="#f2a7c3"/);
   assert.match(svg, /cx="172"[^>]*fill="#f2a7c3"/);
+});
+
+// My USB headphones only have a volume level every 5%. This is a pretend
+// version of them that always settles on the level at or below what it's
+// asked for, which is the worst case for a dial stepping by 3.
+function coarse(asked) {
+  return Math.floor((asked - 4) / 5) * 5 + 4;
+}
+
+// The bug this protects against: starting every click from the device's
+// report, a 3% step from 64 asks for 67, lands back on 64, and the dial is
+// stuck there forever no matter how much I turn.
+test("turning up on a device with coarse levels keeps climbing", () => {
+  let reported = 64;
+  let aim;
+  for (let click = 0; click < 4; click++) {
+    const now = 1000 + click * 100;
+    aim = { volume: stepVolume(turnFrom(reported, aim, now), 1, 3), at: now, from: reported };
+    reported = coarse(aim.volume);
+  }
+  // Four clicks asked for 67, 70, 73 and 76.
+  assert.equal(aim.volume, 76);
+  assert.equal(reported, 74);
+});
+
+// The same trap, but one click every ten seconds with a 1% step. Time
+// alone would forget each click before the next one, so the aim has to
+// hold for as long as the device hasn't moved.
+test("slow single clicks still get a coarse device moving", () => {
+  let reported = 64;
+  let aim;
+  for (let click = 0; click < 5; click++) {
+    const now = 1000 + click * 10000;
+    aim = { volume: stepVolume(turnFrom(reported, aim, now), 1, 1), at: now, from: reported };
+    reported = coarse(aim.volume);
+  }
+  assert.equal(reported, 69);
+});
+
+// The aim is only for the middle of a turn. If it never expired, changing
+// the volume from the keyboard and then turning the dial would jump back
+// to wherever the dial was last time.
+test("a turn after a pause starts from the device's real volume", () => {
+  const aim = { volume: 76, at: 1000, from: 64 };
+  assert.equal(turnFrom(40, aim, 1000 + AIM_MS - 1), 76);
+  assert.equal(turnFrom(40, aim, 1000 + AIM_MS), 40);
+  assert.equal(turnFrom(40, undefined, 5000), 40);
+});
+
+// Between slow clicks the strip must show where the device really is, not
+// a number it was asked for and never reached.
+test("the strip shows the aim only while I'm turning", () => {
+  const aim = { volume: 67, at: 1000, from: 64 };
+  assert.equal(shownVolume(64, aim, 1200), 67);
+  assert.equal(shownVolume(64, aim, 1000 + AIM_MS), 64);
 });
