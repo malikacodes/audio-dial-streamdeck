@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import streamDeck, { action, SingletonAction } from "@elgato/streamdeck";
 import { Audio } from "./audio.js";
-import { find, picks, tapTarget, stepVolume, refreshPicks } from "./devices.js";
+import { find, picks, tapTarget, stepVolume, turnFrom, shownVolume, refreshPicks, AIM_MS } from "./devices.js";
 import { drawStrip } from "./strip.js";
 import { FineTune } from "./finetune.js";
 
@@ -24,6 +24,9 @@ class OutputDial extends SingletonAction {
   settings = new Map();
   notices = new Map();
   lastImages = new Map();
+
+  // The volume I last asked each device for, by device id (see turnFrom).
+  aims = new Map();
 
   async onWillAppear(ev) {
     this.settings.set(ev.action.id, ev.payload.settings ?? {});
@@ -50,18 +53,22 @@ class OutputDial extends SingletonAction {
     if (!device?.hasVolume) return;
     const step = Number(this.settings.get(ev.action.id)?.step) || 3;
 
-    // I change my own copy first and don't wait for the helper to report
-    // back. A fast spin sends several turns in a row, and each one has to
-    // start from where the last one left off.
-    device.volume = stepVolume(device.volume, ev.payload.ticks, step);
-    audio.setVolume(device, device.volume);
+    // Each click starts from what the last one asked for, not from what
+    // the device reported, so a fast spin adds up and a device with only a
+    // few real levels can't trap the dial between two of them.
+    const now = Date.now();
+    const volume = stepVolume(turnFrom(device.volume, this.aims.get(device.id), now), ev.payload.ticks, step);
+    this.aims.set(device.id, { volume, at: now, from: device.volume });
+    audio.setVolume(device, volume);
 
     // Turning a muted dial and hearing nothing would feel broken.
-    if (device.muted) {
-      device.muted = false;
-      audio.setMuted(device, false);
-    }
+    if (device.muted) audio.setMuted(device, false);
     await this.render(ev.action);
+
+    // Once I've stopped turning, the strip goes back to the device's real
+    // number, which can be a little off from the last one I asked for.
+    clearTimeout(this.settle);
+    this.settle = setTimeout(() => this.render(ev.action).catch(() => {}), AIM_MS + 50);
   }
 
   // Pressing the dial mutes and unmutes.
@@ -122,7 +129,10 @@ class OutputDial extends SingletonAction {
     // is being dragged. Every setFeedback is a message to Stream Deck, so
     // a picture only goes out when it's different from the last one.
     const { volumeColor, switchColor } = settings;
-    const image = asImage(drawStrip({ device, slot, notice: this.notices.get(target.id), volumeColor, switchColor }));
+    // While I'm turning, the strip shows the number I'm asking for, so it
+    // moves on every click even when the device only moves on some.
+    const shown = device?.hasVolume ? { ...device, volume: shownVolume(device.volume, this.aims.get(device.id), Date.now()) } : device;
+    const image = asImage(drawStrip({ device: shown, slot, notice: this.notices.get(target.id), volumeColor, switchColor }));
     if (this.lastImages.get(target.id) === image) return;
     this.lastImages.set(target.id, image);
     await target.setFeedback({ canvas: image });
