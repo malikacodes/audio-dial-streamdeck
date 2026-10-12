@@ -9,6 +9,9 @@ const RESTART_MS = 2000;
 
 export class Audio extends EventEmitter {
   devices = [];
+  // For turning a device through FineTune (see pressKey).
+  canPressKeys = false;
+  fineTuneOpen = false;
 
   constructor(helperPath, logger) {
     super();
@@ -36,6 +39,8 @@ export class Audio extends EventEmitter {
         return;
       }
       this.devices = report.devices;
+      this.canPressKeys = report.canPressKeys === true;
+      this.fineTuneOpen = report.fineTuneOpen === true;
       this.emit("change");
     });
     createInterface({ input: helper.stderr }).on("line", line => this.logger.warn(`Helper: ${line}`));
@@ -89,5 +94,11 @@ export class Audio extends EventEmitter {
 
   setMuted(device, value) {
     this.send({ cmd: "mute", id: device.id, value });
+  }
+
+  // Presses a keyboard sound key: "up", "down" or "mute". It lands on
+  // whatever device has the sound, same as the real keys.
+  pressKey(name) {
+    this.send({ cmd: "key", name });
   }
 }

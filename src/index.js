@@ -3,7 +3,7 @@ import streamDeck, { action, SingletonAction } from "@elgato/streamdeck";
 import { Audio } from "./audio.js";
 import { find, picks, tapTarget, stepVolume, turnFrom, shownVolume, refreshPicks, AIM_MS } from "./devices.js";
 import { drawStrip } from "./strip.js";
-import { FineTune } from "./finetune.js";
+import { FineTune, TRUST_MS } from "./finetune.js";
 
 const NOTICE_MS = 2000;
 
@@ -46,10 +46,37 @@ class OutputDial extends SingletonAction {
     this.lastImages.delete(ev.action.id);
   }
 
+  // My monitor has no volume in macOS, but FineTune can turn it down in
+  // software. This is FineTune's { volume, muted } for a device like that,
+  // or null when the device has a real volume or FineTune isn't handling it.
+  viaFineTune(device) {
+    if (!device || device.hasVolume || !audio.fineTuneOpen) return null;
+    return fineTune.device(device.id);
+  }
+
+  // FineTune has no command for a device's volume, only for apps. It does
+  // listen for the keyboard's volume keys though, so the dial presses
+  // those. Each press is one of FineTune's steps, not one of mine.
+  async pressKeys(target, device, name, times = 1) {
+    for (let i = 0; i < times; i++) audio.pressKey(name);
+    // The first press makes macOS ask for permission. Until I say yes the
+    // presses go nowhere, and a dial that silently does nothing is worse
+    // than one that says why.
+    if (!audio.canPressKeys) return this.showNotice(target, "Keys not allowed");
+
+    // The strip moves now, on the number I expect. Once I've stopped it
+    // checks that against what FineTune really saved.
+    fineTune.expectKeys(device.id, name, times);
+    await this.render(target);
+    clearTimeout(this.settle);
+    this.settle = setTimeout(() => this.render(target).catch(() => {}), TRUST_MS + 50);
+  }
+
   // Turning changes the volume of whatever is playing sound right now,
   // even if it isn't one of my two devices.
   async onDialRotate(ev) {
     const device = audio.active;
+    if (this.viaFineTune(device)) return this.pressKeys(ev.action, device, ev.payload.ticks > 0 ? "up" : "down", Math.abs(ev.payload.ticks));
     if (!device?.hasVolume) return;
     const step = Number(this.settings.get(ev.action.id)?.step) || 3;
 
@@ -72,8 +99,9 @@ class OutputDial extends SingletonAction {
   }
 
   // Pressing the dial mutes and unmutes.
-  onDialDown() {
+  onDialDown(ev) {
     const device = audio.active;
+    if (this.viaFineTune(device)) return this.pressKeys(ev.action, device, "mute");
     if (device?.canMute) audio.setMuted(device, !device.muted);
   }
 
@@ -131,7 +159,10 @@ class OutputDial extends SingletonAction {
     const { volumeColor, switchColor } = settings;
     // While I'm turning, the strip shows the number I'm asking for, so it
     // moves on every click even when the device only moves on some.
-    const shown = device?.hasVolume ? { ...device, volume: shownVolume(device.volume, this.aims.get(device.id), Date.now()) } : device;
+    let shown = device;
+    const borrowed = this.viaFineTune(device);
+    if (borrowed) shown = { ...device, hasVolume: true, ...borrowed };
+    else if (device?.hasVolume) shown = { ...device, volume: shownVolume(device.volume, this.aims.get(device.id), Date.now()) };
     const image = asImage(drawStrip({ device: shown, slot, notice: this.notices.get(target.id), volumeColor, switchColor }));
     if (this.lastImages.get(target.id) === image) return;
     this.lastImages.set(target.id, image);
@@ -218,7 +249,11 @@ streamDeck.actions.registerAction(dial);
 streamDeck.actions.registerAction(appDial);
 
 // FineTune's numbers changed, by this dial or by me in FineTune's menu.
+// The Output Dial redraws too, for the monitor volume it borrows.
 fineTune.on("change", () => {
+  for (const target of dial.actions) {
+    dial.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the dial: ${error.message}`));
+  }
   for (const target of appDial.actions) {
     appDial.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the app dial: ${error.message}`));
   }
