@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appState, volumeLink, muteLink } from "../src/finetune.js";
+import { appState, deviceState, afterKeys, volumeLink, muteLink } from "../src/finetune.js";
 import { drawStrip } from "../src/strip.js";
 
 // The same shape FineTune saves in its settings.json, with the parts the
@@ -49,4 +49,52 @@ test("the app strip shows the app and its volume, without the device dots", () =
   assert.match(svg, />Music</);
   assert.match(svg, />23%</);
   assert.doesNotMatch(svg, /<circle/);
+});
+
+// What FineTune saves for my monitor, copied from the real file with the
+// slider at 5 of its 16 steps.
+const monitor = "1E6D6777-0000-0000-0A21-010380502178";
+const withMonitor = {
+  appSettings: { mediaKeyControlEnabled: true },
+  softwareDeviceVolumes: { [monitor]: 0.09765625 },
+  softwareDeviceMuteStates: { [monitor]: false },
+};
+
+// FineTune saves the slider squared. Read it straight and the strip says
+// 10% while FineTune's own slider sits at 31%.
+test("a monitor's saved loudness comes back as the slider's percent", () => {
+  assert.deepEqual(deviceState(withMonitor, monitor), { volume: 31, muted: false });
+  assert.equal(deviceState({ ...withMonitor, softwareDeviceVolumes: { [monitor]: 1 } }, monitor).volume, 100);
+});
+
+test("a muted monitor reads as muted", () => {
+  const muted = { ...withMonitor, softwareDeviceVolumes: { [monitor]: 0 }, softwareDeviceMuteStates: { [monitor]: true } };
+  assert.deepEqual(deviceState(muted, monitor), { volume: 0, muted: true });
+});
+
+// Null is what sends the strip back to "Volume on the device". A number
+// here would promise a volume the dial has no way to change.
+test("a device FineTune isn't turning has no borrowed volume", () => {
+  assert.equal(deviceState(withMonitor, "BuiltInSpeakerDevice"), null);
+  assert.equal(deviceState({}, monitor), null);
+});
+
+// The dial reaches FineTune by pressing the volume keys. With FineTune's
+// media keys setting off, those presses do nothing to the monitor.
+test("no borrowed volume when FineTune isn't listening for the volume keys", () => {
+  assert.equal(deviceState({ ...withMonitor, appSettings: { mediaKeyControlEnabled: false } }, monitor), null);
+});
+
+// The strip shows this guess before FineTune has saved anything. These
+// are the numbers FineTune really lands on, so a wrong one here is a
+// number that visibly jumps half a second after every click.
+test("the guess after a key press matches FineTune's real notches", () => {
+  assert.equal(afterKeys(31, -1), 25);
+  assert.equal(afterKeys(100, -3), 81);
+  assert.equal(afterKeys(81, 3), 100);
+});
+
+test("the guess stops at silent and at full", () => {
+  assert.equal(afterKeys(6, -4), 0);
+  assert.equal(afterKeys(94, 5), 100);
 });

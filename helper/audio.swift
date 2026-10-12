@@ -8,6 +8,7 @@
 //        {"cmd":"volume","id":"<device id>","value":40}
 //        {"cmd":"mute","id":"<device id>","value":true}
 //        {"cmd":"apps"}
+//        {"cmd":"key","name":"up"}      (or "down", or "mute")
 // Out: one JSON line on stdout with every output device, after each command
 //      and whenever something changes on its own (volume keys, menu bar,
 //      headphones plugged in). "apps" is the exception: it answers with
@@ -138,7 +139,14 @@ func report() {
 
     let current = defaultOutput()
     let devices = ids.map { describe($0, isDefault: $0 == current) }
-    guard let json = try? JSONSerialization.data(withJSONObject: ["devices": devices]) else { return }
+    // The last two are for pressing the volume keys (see press): whether
+    // macOS lets me, and whether FineTune is there to hear them.
+    let everything: [String: Any] = [
+        "devices": devices,
+        "canPressKeys": CGPreflightPostEventAccess(),
+        "fineTuneOpen": !NSRunningApplication.runningApplications(withBundleIdentifier: fineTuneID).isEmpty,
+    ]
+    guard let json = try? JSONSerialization.data(withJSONObject: everything) else { return }
     FileHandle.standardOutput.write(json + "\n".data(using: .utf8)!)
 }
 
@@ -161,6 +169,40 @@ func reportApps() {
     FileHandle.standardOutput.write(json + "\n".data(using: .utf8)!)
 }
 
+let fineTuneID = "com.finetuneapp.FineTune"
+
+// The numbers macOS uses for the three sound keys on the keyboard.
+let soundKeys: [String: Int] = ["up": 0, "down": 1, "mute": 7]
+
+// Presses one of the keyboard's sound keys, as if I'd hit F10, F11 or F12.
+// This is the only way to turn my monitor: macOS has no volume for it, but
+// FineTune listens for these keys and turns it down in software. FineTune
+// takes commands for apps and none for devices, so the keys are the door.
+//
+// A press is two events, key down and key up, and the odd numbers are how
+// macOS packs "which key" and "down or up" into one.
+func press(_ name: String) {
+    guard let key = soundKeys[name] else {
+        complain("key: no sound key called \(name)")
+        return
+    }
+    // macOS only lets an app send key presses once it's been allowed in
+    // Privacy & Security > Accessibility. Asking makes the prompt show up.
+    guard CGPreflightPostEventAccess() else {
+        CGRequestPostEventAccess()
+        complain("key: macOS hasn't allowed Stream Deck to press keys")
+        return
+    }
+    for down in [true, false] {
+        let state = down ? 0xa : 0xb
+        let event = NSEvent.otherEvent(with: .systemDefined, location: .zero,
+                                       modifierFlags: NSEvent.ModifierFlags(rawValue: UInt(state << 8)),
+                                       timestamp: 0, windowNumber: 0, context: nil, subtype: 8,
+                                       data1: (key << 16) | (state << 8), data2: -1)
+        event?.cgEvent?.post(tap: .cghidEventTap)
+    }
+}
+
 func run(_ line: String) {
     guard let data = line.data(using: .utf8),
           let command = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
@@ -170,6 +212,11 @@ func run(_ line: String) {
     }
     if name == "apps" {
         reportApps()
+        return
+    }
+    if name == "key" {
+        press(command["name"] as? String ?? "")
+        report()
         return
     }
     if name != "list" {
@@ -204,6 +251,15 @@ func run(_ line: String) {
 listen(system, address(kAudioHardwarePropertyDevices))
 listen(system, address(kAudioHardwarePropertyDefaultOutputDevice))
 
+// FineTune opening or closing changes what the dial can do on my monitor,
+// so that gets a report too.
+for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+    NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { note in
+        let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication
+        if app?.bundleIdentifier == fineTuneID { queueReport() }
+    }
+}
+
 // Commands are read on their own thread so waiting for the next line never
 // blocks the listeners. When stdin closes the plugin is gone, so I quit too
 // instead of hanging around forever.
@@ -215,4 +271,6 @@ Thread.detachNewThread {
 }
 
 report()
-dispatchMain()
+// A run loop and not dispatchMain: the "an app opened" notices above only
+// get delivered to a program that's running one.
+RunLoop.main.run()

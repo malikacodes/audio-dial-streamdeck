@@ -8,6 +8,9 @@
 // In:  FineTune saves every app's volume and mute in a settings file, so
 //   reading that file is how the dial knows the real number, even when I
 //   moved the slider in FineTune's own menu.
+//
+// The Output Dial reads the same file for my monitor. macOS has no volume
+// for it, so FineTune gives it one, and that number is saved in here too.
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
 import { watch } from "node:fs";
@@ -21,7 +24,7 @@ const SETTINGS = "settings.json";
 // How long my own change is trusted over the file. FineTune takes a moment
 // to save, and without this the strip would jump back to the old number
 // for a blink in the middle of a turn.
-const TRUST_MS = 1500;
+export const TRUST_MS = 1500;
 
 // What FineTune's settings say about one app, as { volume, muted } with
 // volume in percent. An app FineTune has never touched isn't in the file,
@@ -32,6 +35,34 @@ export function appState(settings, appId) {
     volume: typeof saved === "number" ? Math.round(saved * 100) : 100,
     muted: settings?.appMutes?.[appId] === true,
   };
+}
+
+// What FineTune's settings say about a device it turns down itself, as
+// { volume, muted }, or null when it isn't doing that for this device.
+//
+// FineTune saves the loudness it applies, which is the slider squared
+// (ears hear in curves, not straight lines). So a slider at 50% is saved
+// as 0.25, and the square root gets the slider back.
+//
+// With FineTune's "media keys" setting off it ignores the volume keys, and
+// the keys are the only way the dial can reach it. So that reads as null
+// too, and the strip doesn't show a number the dial can't change.
+export function deviceState(settings, deviceId) {
+  const saved = settings?.softwareDeviceVolumes?.[deviceId];
+  if (typeof saved !== "number" || settings?.appSettings?.mediaKeyControlEnabled !== true) return null;
+  return {
+    volume: Math.round(Math.sqrt(saved) * 100),
+    muted: settings?.softwareDeviceMuteStates?.[deviceId] === true,
+  };
+}
+
+// Where a device's volume lands after some presses of the volume keys
+// (minus for down). FineTune's slider has 16 notches and a press moves
+// one, so I count in notches and turn it back into a percent. Counting in
+// percent would drift: a notch is 6.25, and the strip only shows 6 or 7.
+export function afterKeys(volume, presses) {
+  const notch = Math.round((volume * 16) / 100) + presses;
+  return Math.round((Math.min(16, Math.max(0, notch)) * 100) / 16);
 }
 
 export function volumeLink(appId, volume) {
@@ -84,6 +115,33 @@ export class FineTune extends EventEmitter {
     const mine = this.mine.get(appId);
     if (mine && Date.now() - mine.at < TRUST_MS) return { volume: mine.volume, muted: mine.muted };
     return appState(this.settings, appId);
+  }
+
+  // Same trust as an app gets: for a moment after the dial pressed a key,
+  // the number it expects wins over the file.
+  device(deviceId) {
+    const saved = deviceState(this.settings, deviceId);
+    const mine = this.mine.get(deviceId);
+    if (saved && mine && Date.now() - mine.at < TRUST_MS) return { volume: mine.volume, muted: mine.muted };
+    return saved;
+  }
+
+  // The dial just pressed a volume key for this device ("up", "down" or
+  // "mute", times over). FineTune takes about half a second to save the
+  // new number, and a strip that waits for it feels like the dial is
+  // dragging. So I work out where it will land and show that right away.
+  //
+  // Two cases get no guess and wait for the file. Coming out of mute,
+  // because the file says 0 while muted and I can't see the volume it
+  // will come back to. And any step setting in FineTune other than
+  // "normal", because I only know the size of that one.
+  expectKeys(deviceId, name, times) {
+    const now = this.device(deviceId);
+    if (!now || now.muted) return;
+    if (name === "mute") this.mine.set(deviceId, { ...now, muted: true, at: Date.now() });
+    else if (this.settings?.appSettings?.volumeHotkeyStep === "normal") {
+      this.mine.set(deviceId, { ...now, volume: afterKeys(now.volume, name === "up" ? times : -times), at: Date.now() });
+    }
   }
 
   setVolume(appId, volume) {

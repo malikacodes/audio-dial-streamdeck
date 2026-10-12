@@ -86,10 +86,21 @@ Deck or macOS in it, so `npm test` can check it with plain lists.
 
 ## Things to know
 
-- **My monitor has no volume.** macOS reports no volume or mute control for
-  the LG ULTRAWIDE over HDMI: the Mac sends it full volume and the
-  monitor's own buttons decide the rest. On a device like that the dial
-  still switches to it, and the strip says "Volume on the device".
+- **My monitor has no volume, so the dial borrows FineTune's.** macOS
+  reports no volume or mute control for the LG ULTRAWIDE over HDMI: the
+  Mac sends it full volume and the monitor's own buttons decide the rest.
+  FineTune can turn a device like that down in software, but it only takes
+  commands for apps, not devices. It does listen for the keyboard's volume
+  keys, so on the monitor the dial presses F11, F12 and F10 for me and
+  reads the number back from FineTune's settings file.
+- That has strings attached. A click is one of FineTune's steps (1/16 of
+  the slider), not the step size in my settings. FineTune takes
+  about half a second to save a new number, so the strip shows the one
+  it expects right away and checks it once I stop turning. FineTune has to be open with its media keys
+  setting on. And macOS has to allow Stream Deck to press keys (Privacy &
+  Security > Accessibility): the strip says "Keys not allowed" until then.
+- Without FineTune the dial still switches to the monitor, and the strip
+  says "Volume on the device".
 - I tried controlling the monitor directly with `m1ddc` (DDC, commands
   sent down the display cable). The monitor showed up and then refused
   everything, brightness included, so it's my cable or adapter. Not built.
