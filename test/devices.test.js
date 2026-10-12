@@ -97,8 +97,8 @@ test("the strip shows the device, its volume and which of my two it is", () => {
   assert.match(svg, /USB Audio Device/);
   assert.match(svg, />20%</);
   // First dot pink, second one grey.
-  assert.match(svg, /cx="172"[^>]*fill="#f2a7c3"/);
-  assert.match(svg, /cx="185"[^>]*fill="#5c5c62"/);
+  assert.match(svg, /cx="169"[^>]*fill="#f2a7c3"/);
+  assert.match(svg, /cx="182"[^>]*fill="#5c5c62"/);
 });
 
 test("the strip says Muted, and admits when a device has no volume", () => {
@@ -119,9 +119,9 @@ test("the strip survives awkward device names", () => {
 test("the strip uses my colors for the volume bar and the active dot", () => {
   const svg = drawStrip({ device: headphones, slot: "secondary", volumeColor: "#00ffaa", switchColor: "#aa00ff" });
   assert.match(svg, /<rect[^>]*height="8"[^>]*fill="#00ffaa"/);
-  assert.match(svg, /cx="185"[^>]*fill="#aa00ff"/);
+  assert.match(svg, /cx="182"[^>]*fill="#aa00ff"/);
   // The dot for the device I'm not on stays grey.
-  assert.match(svg, /cx="172"[^>]*fill="#5c5c62"/);
+  assert.match(svg, /cx="169"[^>]*fill="#5c5c62"/);
 });
 
 // Settings are just text. A broken value must not end up inside the SVG,
@@ -130,7 +130,7 @@ test("a color that isn't a hex color falls back to pink", () => {
   const svg = drawStrip({ device: headphones, slot: "primary", volumeColor: 'red" onload="x', switchColor: "" });
   assert.doesNotMatch(svg, /onload/);
   assert.match(svg, /<rect[^>]*height="8"[^>]*fill="#f2a7c3"/);
-  assert.match(svg, /cx="172"[^>]*fill="#f2a7c3"/);
+  assert.match(svg, /cx="169"[^>]*fill="#f2a7c3"/);
 });
 
 // My USB headphones only have a volume level every 5%. This is a pretend

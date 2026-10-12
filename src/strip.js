@@ -47,9 +47,13 @@ export function drawStrip({ device, slot, notice, volumeColor, switchColor, dots
 
     // Two dots, like the pair under the Audio Switcher key: the filled one
     // is the device I'm on. Neither is filled on a device outside my two.
+    //
+    // They sit level with the percent, not up by the name. In a dial
+    // stack Stream Deck draws its own stack icon in the top right corner,
+    // and up there it covered them.
     if (dots) {
-      parts.push(`<circle cx="172" cy="25" r="4" fill="${slot === "primary" ? dot : DIM}"/>`);
-      parts.push(`<circle cx="185" cy="25" r="4" fill="${slot === "secondary" ? dot : DIM}"/>`);
+      parts.push(`<circle cx="169" cy="56" r="4" fill="${slot === "primary" ? dot : DIM}"/>`);
+      parts.push(`<circle cx="182" cy="56" r="4" fill="${slot === "secondary" ? dot : DIM}"/>`);
     }
 
     if (!device.hasVolume) {
