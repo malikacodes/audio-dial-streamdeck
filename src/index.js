@@ -24,6 +24,8 @@ class OutputDial extends SingletonAction {
   settings = new Map();
   notices = new Map();
   lastImages = new Map();
+  // The timer that redraws each dial once its turning has stopped.
+  settles = new Map();
 
   // The volume I last asked each device for, by device id (see turnFrom).
   aims = new Map();
@@ -68,8 +70,17 @@ class OutputDial extends SingletonAction {
     // checks that against what FineTune really saved.
     fineTune.expectKeys(device.id, name, times);
     await this.render(target);
-    clearTimeout(this.settle);
-    this.settle = setTimeout(() => this.render(target).catch(() => {}), TRUST_MS + 50);
+    this.settleLater(target, TRUST_MS + 50);
+  }
+
+  // Redraws a dial in a moment, once it has stopped being turned. Every
+  // dial has its own timer: with one shared by all of them, turning a
+  // second dial cancelled the first one's redraw and left it on its guess.
+  settleLater(target, ms) {
+    clearTimeout(this.settles.get(target.id));
+    this.settles.set(target.id, setTimeout(() => {
+      this.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the dial: ${error.message}`));
+    }, ms));
   }
 
   // Turning changes the volume of whatever is playing sound right now,
@@ -94,8 +105,7 @@ class OutputDial extends SingletonAction {
 
     // Once I've stopped turning, the strip goes back to the device's real
     // number, which can be a little off from the last one I asked for.
-    clearTimeout(this.settle);
-    this.settle = setTimeout(() => this.render(ev.action).catch(() => {}), AIM_MS + 50);
+    this.settleLater(ev.action, AIM_MS + 50);
   }
 
   // Pressing the dial mutes and unmutes.
