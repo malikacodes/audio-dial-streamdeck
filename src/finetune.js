@@ -114,6 +114,15 @@ export class FineTune extends EventEmitter {
       setTimeout(() => this.watchLater(), REWATCH_MS);
       return false;
     }
+    // Without a listener, an error on a watcher is thrown at the whole
+    // plugin. A watcher that has failed is done, so I let go of it and
+    // start over like the folder had never been there.
+    const failed = this.watcher;
+    failed.on("error", error => {
+      this.logger.warn(`Lost the watch on FineTune's settings folder: ${error.message}`);
+      failed.close();
+      setTimeout(() => this.watchLater(), REWATCH_MS);
+    });
     return true;
   }
 

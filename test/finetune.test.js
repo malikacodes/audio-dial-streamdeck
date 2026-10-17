@@ -229,3 +229,24 @@ test("while the folder is still missing it keeps looking quietly", { timeout: 10
   assert.equal(fineTune.watcher, undefined);
   assert.equal(logs.length, logged);
 });
+
+// A watcher with no error listener turns any hiccup (the folder deleted
+// under it, say) into an uncaught error that closes the plugin. Now it's
+// logged, the dead watcher is let go, and a new one is set up.
+test("a watcher error is logged and the folder is watched again", { timeout: 10000 }, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const folder = mkdtempSync(join(tmpdir(), "finetune-"));
+  writeFileSync(join(folder, "settings.json"), JSON.stringify(settings));
+  const { fineTune, logs } = fineTuneIn(t, folder);
+  await fineTune.start();
+  const dead = fineTune.watcher;
+  const changed = once(fineTune, "change");
+
+  dead.emit("error", new Error("folder went away"));
+  assert.ok(logs.some(line => line.includes("folder went away")));
+  t.mock.timers.tick(REWATCH_MS);
+  await changed;
+
+  assert.ok(fineTune.watcher);
+  assert.notEqual(fineTune.watcher, dead);
+});
