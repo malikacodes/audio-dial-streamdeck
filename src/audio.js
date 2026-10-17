@@ -33,9 +33,16 @@ export class Audio extends EventEmitter {
         return;
       }
       // Two kinds of line come back: the list of open apps, which is only
-      // ever an answer to openApps(), and the device report.
-      if (report.apps) {
+      // ever an answer to openApps(), and the device report. Valid JSON
+      // can still be the wrong thing (null, {}), and one of those would
+      // throw in here and take the plugin down, so anything that isn't
+      // one of the two is logged and skipped.
+      if (Array.isArray(report?.apps)) {
         this.emit("apps", report.apps);
+        return;
+      }
+      if (!Array.isArray(report?.devices)) {
+        this.logger.warn(`Helper sent something that isn't a report: ${line}`);
         return;
       }
       this.devices = report.devices;

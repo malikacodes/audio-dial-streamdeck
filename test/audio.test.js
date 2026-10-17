@@ -108,3 +108,20 @@ test("a line that isn't JSON is logged, and a helper that exits is started again
   for (let i = 0; i < 200; i++) await new Promise(resolve => setImmediate(resolve));
   assert.equal(readFileSync(runs, "utf8"), "x\nx\n");
 });
+
+// Valid JSON that isn't a report used to throw inside the line handler,
+// which takes the plugin down. Each of these is skipped and logged, and
+// the real report after them still gets through.
+test("lines that are JSON but not a report are logged and skipped", { timeout: 10000 }, async t => {
+  const report = { devices: [{ id: "a", name: "Speakers", isDefault: true }], canPressKeys: false, fineTuneOpen: false };
+  const lines = ["null", "42", "[]", "{}", '{"devices":5}', '{"apps":"nope"}', JSON.stringify(report)];
+  const { audio, logs } = startAudio(t, fakeHelper(`for (const line of ${JSON.stringify(lines)}) console.log(line); ${STAY_ALIVE}`));
+  let changes = 0;
+  audio.on("change", () => changes++);
+
+  await once(audio, "change");
+
+  assert.equal(changes, 1);
+  assert.deepEqual(audio.devices, report.devices);
+  assert.equal(logs.filter(line => line.includes("isn't a report")).length, 6);
+});
