@@ -12,6 +12,10 @@ export class Audio extends EventEmitter {
   // For turning a device through FineTune (see pressKey).
   canPressKeys = false;
   fineTuneOpen = false;
+  // True from the moment the helper stops until it reports again. The
+  // strip uses it to say so, because an empty device list alone looks
+  // the same as no speakers plugged in.
+  down = false;
 
   constructor(helperPath, logger) {
     super();
@@ -48,6 +52,7 @@ export class Audio extends EventEmitter {
       this.devices = report.devices;
       this.canPressKeys = report.canPressKeys === true;
       this.fineTuneOpen = report.fineTuneOpen === true;
+      this.down = false;
       this.emit("change");
     });
     createInterface({ input: helper.stderr }).on("line", line => this.logger.warn(`Helper: ${line}`));
@@ -61,6 +66,14 @@ export class Audio extends EventEmitter {
     // place covers bringing it back.
     helper.on("close", code => {
       this.logger.warn(`Audio helper stopped (${code}). Starting it again.`);
+      // Everything I knew came from the helper, so none of it is true any
+      // more. Keeping the old list would show a volume nobody is
+      // listening to.
+      this.devices = [];
+      this.canPressKeys = false;
+      this.fineTuneOpen = false;
+      this.down = true;
+      this.emit("change");
       setTimeout(() => this.start(), RESTART_MS);
     });
   }

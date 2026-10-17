@@ -90,9 +90,10 @@ test("a line that isn't JSON is logged, and a helper that exits is started again
 
   await once(first, "close");
   assert.ok(logs.some(line => line.includes("isn't JSON: not json at all")));
-  // The bad line is skipped: no change was announced and nothing was stored.
+  // The bad line is skipped: nothing was stored, and the only change
+  // announced is the helper stopping.
   assert.deepEqual(audio.devices, []);
-  assert.equal(changes, 0);
+  assert.equal(changes, 1);
   assert.ok(logs.some(line => line.includes("stopped")));
   // Nothing has started again yet: it waits out the restart time first.
   assert.equal(readFileSync(runs, "utf8"), "x\n");
@@ -124,4 +125,27 @@ test("lines that are JSON but not a report are logged and skipped", { timeout: 1
   assert.equal(changes, 1);
   assert.deepEqual(audio.devices, report.devices);
   assert.equal(logs.filter(line => line.includes("isn't a report")).length, 6);
+});
+
+// A helper that dies used to leave the last volume on the strip, and the
+// dial kept sending turns to nobody. Now the state goes with it, the
+// strip is told, and `down` says why the list is empty.
+test("when the helper stops, what it reported is cleared and the strip is told", { timeout: 10000 }, async t => {
+  const report = { devices: [{ id: "a", name: "Speakers", isDefault: true }], canPressKeys: true, fineTuneOpen: true };
+  const { audio } = startAudio(t, fakeHelper(`console.log(${JSON.stringify(JSON.stringify(report))}); setTimeout(() => process.exit(1), 50);`));
+  // Node's test clock is only for setTimeout in this process. The fake
+  // helper is its own process, so its timer is real.
+  await once(audio, "change");
+  assert.equal(audio.down, false);
+  const closed = once(audio.helper, "close");
+  const told = once(audio, "change");
+
+  await closed;
+  await told;
+
+  assert.deepEqual(audio.devices, []);
+  assert.equal(audio.active, null);
+  assert.equal(audio.canPressKeys, false);
+  assert.equal(audio.fineTuneOpen, false);
+  assert.equal(audio.down, true);
 });

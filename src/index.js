@@ -163,7 +163,10 @@ class OutputDial extends SingletonAction {
     const borrowed = this.viaFineTune(device);
     if (borrowed) shown = { ...device, hasVolume: true, ...borrowed };
     else if (device?.hasVolume) shown = { ...device, volume: shownVolume(device.volume, this.aims.get(device.id), Date.now()) };
-    const image = asImage(drawStrip({ device: shown, slot, notice: this.notices.get(target.id), volumeColor, switchColor }));
+    // A message I'm showing for a moment wins. Without one, a stopped
+    // helper gets the strip to itself, since there's nothing to show.
+    const notice = this.notices.get(target.id) ?? (audio.down ? "Audio helper is off" : undefined);
+    const image = asImage(drawStrip({ device: shown, slot, notice, volumeColor, switchColor }));
     if (this.lastImages.get(target.id) === image) return;
     this.lastImages.set(target.id, image);
     await target.setFeedback({ canvas: image });
