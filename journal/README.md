@@ -14,3 +14,4 @@ out twice.
 | 06 | 2026-10-12 | [The dots were hiding](06-the-dots-were-hiding.md) |
 | 07 | 2026-10-17 | [Testing the part that talks to the helper](07-testing-the-helper-connection.md) |
 | 08 | 2026-10-17 | [When the helper dies](08-when-the-helper-dies.md) |
+| 09 | 2026-10-17 | [The watcher that gave up](09-the-watcher-that-gave-up.md) |
