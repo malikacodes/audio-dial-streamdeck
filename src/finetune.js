@@ -13,7 +13,7 @@
 // for it, so FineTune gives it one, and that number is saved in here too.
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { watch } from "node:fs";
+import { watch, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -105,7 +105,11 @@ export class FineTune extends EventEmitter {
   // the plugin is running still works.
   watchFolder() {
     try {
-      this.watcher = watch(this.folder, (_event, name) => {
+      this.watcher = watch(this.folder, (event, name) => {
+        // If the folder itself is deleted, macOS doesn't call it an error.
+        // The watcher just sits on a folder that's gone and reports it as
+        // a change to the folder's own name, so I look at every event.
+        if (!existsSync(this.folder)) return this.unwatch(this.watcher);
         if (name && name !== SETTINGS) return;
         clearTimeout(this.settling);
         this.settling = setTimeout(() => this.read().then(() => this.emit("change")), 100);
@@ -115,15 +119,23 @@ export class FineTune extends EventEmitter {
       return false;
     }
     // Without a listener, an error on a watcher is thrown at the whole
-    // plugin. A watcher that has failed is done, so I let go of it and
-    // start over like the folder had never been there.
-    const failed = this.watcher;
-    failed.on("error", error => {
+    // plugin.
+    const watcher = this.watcher;
+    watcher.on("error", error => {
       this.logger.warn(`Lost the watch on FineTune's settings folder: ${error.message}`);
-      failed.close();
-      setTimeout(() => this.watchLater(), REWATCH_MS);
+      this.unwatch(watcher);
     });
     return true;
+  }
+
+  // A watcher that has failed is done. I let go of it and start over like
+  // the folder had never been there. Only the watcher I'm holding counts,
+  // so a second error from one I already dropped can't set up another.
+  unwatch(watcher) {
+    if (watcher !== this.watcher) return;
+    watcher.close();
+    this.watcher = null;
+    setTimeout(() => this.watchLater(), REWATCH_MS);
   }
 
   // The folder may have shown up with a settings file already in it, so

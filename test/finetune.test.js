@@ -1,5 +1,5 @@
 import { test } from "node:test";
-import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
 import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -216,7 +216,8 @@ test("a settings folder that appears later gets watched and read", { timeout: 10
 // later instead of announcing a change nobody can see.
 test("while the folder is still missing it keeps looking quietly", { timeout: 10000 }, async t => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const { fineTune, logs } = fineTuneIn(t, join(mkdtempSync(join(tmpdir(), "finetune-")), "FineTune"));
+  const folder = join(mkdtempSync(join(tmpdir(), "finetune-")), "FineTune");
+  const { fineTune, logs } = fineTuneIn(t, folder);
   await fineTune.start();
   let changes = 0;
   fineTune.on("change", () => changes++);
@@ -228,6 +229,12 @@ test("while the folder is still missing it keeps looking quietly", { timeout: 10
   assert.equal(changes, 0);
   assert.equal(fineTune.watcher, undefined);
   assert.equal(logs.length, logged);
+
+  // It really did look again: the folder shows up now and the next look finds it.
+  mkdirSync(folder);
+  t.mock.timers.tick(REWATCH_MS);
+  await once(fineTune, "change");
+  assert.ok(fineTune.watcher);
 });
 
 // A watcher with no error listener turns any hiccup (the folder deleted
@@ -241,12 +248,43 @@ test("a watcher error is logged and the folder is watched again", { timeout: 100
   await fineTune.start();
   const dead = fineTune.watcher;
   const changed = once(fineTune, "change");
+  let changes = 0;
+  fineTune.on("change", () => changes++);
 
   dead.emit("error", new Error("folder went away"));
+  // A second error from the same dead watcher must not set up a second one.
+  dead.emit("error", new Error("again"));
   assert.ok(logs.some(line => line.includes("folder went away")));
+  assert.equal(fineTune.watcher, null);
   t.mock.timers.tick(REWATCH_MS);
   await changed;
 
   assert.ok(fineTune.watcher);
   assert.notEqual(fineTune.watcher, dead);
+  // Each look that finds the folder announces a change, and there was one look.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(changes, 1);
+});
+
+// The folder being deleted while the plugin runs (FineTune uninstalled and
+// cleaned up). The watcher doesn't error, it just goes deaf.
+test("deleting the settings folder makes the plugin look for it again", { timeout: 10000 }, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const folder = mkdtempSync(join(tmpdir(), "finetune-"));
+  writeFileSync(join(folder, "settings.json"), JSON.stringify(settings));
+  const { fineTune } = fineTuneIn(t, folder);
+  await fineTune.start();
+
+  // The OS needs a moment before it reports on a brand new watcher. The
+  // test clock has the timers, so this waits on the real one.
+  const started = Date.now();
+  while (Date.now() - started < 500) await new Promise(resolve => setImmediate(resolve));
+  rmSync(folder, { recursive: true });
+  while (fineTune.watcher) await new Promise(resolve => setImmediate(resolve));
+
+  mkdirSync(folder);
+  const changed = once(fineTune, "change");
+  t.mock.timers.tick(REWATCH_MS);
+  await changed;
+  assert.ok(fineTune.watcher);
 });
