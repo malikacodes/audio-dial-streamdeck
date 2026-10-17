@@ -80,9 +80,11 @@ export class Audio extends EventEmitter {
       this.canPressKeys = false;
       this.fineTuneOpen = false;
       this.down = true;
-      this.emit("change");
+      // Scheduled before anyone hears about the change, so a listener
+      // that throws can't stop the helper coming back.
       setTimeout(() => this.start(), this.restartMs);
       this.restartMs = Math.min(this.restartMs * 2, MAX_RESTART_MS);
+      this.emit("change");
     });
   }
 

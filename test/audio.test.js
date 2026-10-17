@@ -183,8 +183,14 @@ test("a helper that keeps dying is restarted after longer and longer waits", { t
   }
   await once(audio.helper, "close");
   const last = audio.helper;
-  t.mock.timers.tick(30000);
+  t.mock.timers.tick(29999);
+  assert.equal(audio.helper, last);
+  t.mock.timers.tick(1);
   assert.notEqual(audio.helper, last);
+  await once(audio.helper, "close");
+  const after = audio.helper;
+  t.mock.timers.tick(29999);
+  assert.equal(audio.helper, after);
 });
 
 // Once the helper has reported, it was working. If it dies later, that's a
@@ -199,4 +205,28 @@ test("a report from the helper puts the restart wait back to 2 seconds", { timeo
     t.mock.timers.tick(2000);
     assert.notEqual(audio.helper, before);
   }
+});
+
+// The strip says "off" only for as long as it's true. The first run quits
+// without reporting; the second one reports, and that clears it.
+test("a report after a restart clears the helper-is-off state", { timeout: 10000 }, async t => {
+  const dir = mkdtempSync(join(tmpdir(), "audio-dial-runs-"));
+  const runs = join(dir, "runs");
+  const report = { devices: [{ id: "a", name: "Speakers", isDefault: true }], canPressKeys: false, fineTuneOpen: false };
+  const helper = fakeHelper(`
+    import { appendFileSync, existsSync } from "node:fs";
+    const before = existsSync(${JSON.stringify(runs)});
+    appendFileSync(${JSON.stringify(runs)}, "x\\n");
+    if (before) { console.log(${JSON.stringify(JSON.stringify(report))}); ${STAY_ALIVE} }
+    else process.exit(1);
+  `);
+  const { audio } = startAudio(t, helper);
+
+  await once(audio.helper, "close");
+  assert.equal(audio.down, true);
+  t.mock.timers.tick(2000);
+  await once(audio, "change");
+
+  assert.equal(audio.down, false);
+  assert.deepEqual(audio.devices, report.devices);
 });

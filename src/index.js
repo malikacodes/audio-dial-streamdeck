@@ -108,6 +108,9 @@ class OutputDial extends SingletonAction {
   // Tapping the strip sends the sound to my other device. The strip
   // redraws on its own when the helper reports the switch.
   async onTouchTap(ev) {
+    // With no helper there are no devices, and "not connected" would be
+    // the wrong reason to give.
+    if (audio.down) return this.showNotice(ev.action, "Audio helper is off");
     const { device, problem } = tapTarget(audio.devices, this.settings.get(ev.action.id) ?? {});
     if (problem) return this.showNotice(ev.action, problem);
     audio.makeDefault(device);
