@@ -46,6 +46,8 @@ class OutputDial extends SingletonAction {
     this.settings.delete(ev.action.id);
     this.notices.delete(ev.action.id);
     this.lastImages.delete(ev.action.id);
+    clearTimeout(this.settles.get(ev.action.id));
+    this.settles.delete(ev.action.id);
   }
 
   // My monitor has no volume in macOS, but FineTune can turn it down in
@@ -145,7 +147,7 @@ class OutputDial extends SingletonAction {
       // Only clear it if a newer message hasn't replaced it.
       if (this.notices.get(target.id) !== text) return;
       this.notices.delete(target.id);
-      this.render(target).catch(() => {});
+      this.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the dial: ${error.message}`));
     }, NOTICE_MS);
   }
 
@@ -159,6 +161,9 @@ class OutputDial extends SingletonAction {
   }
 
   async render(target) {
+    // A redraw can still be on its way when the dial leaves the screen,
+    // and drawing it would put its picture back in lastImages for good.
+    if (!this.settings.has(target.id)) return;
     const settings = this.settings.get(target.id) ?? {};
     const device = audio.active;
     const { primary, secondary } = picks(settings);
@@ -246,6 +251,7 @@ class AppDial extends SingletonAction {
   }
 
   async render(target) {
+    if (!this.settings.has(target.id)) return;
     const { app, appName, volumeColor } = this.settings.get(target.id) ?? {};
     let view;
     if (fineTune.missing) view = { notice: "FineTune isn't installed" };
