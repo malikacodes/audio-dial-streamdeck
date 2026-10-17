@@ -111,8 +111,8 @@ export class FineTune extends EventEmitter {
         // a change to the folder's own name, so I look at every event.
         if (!existsSync(this.folder)) return this.unwatch(this.watcher);
         if (name && name !== SETTINGS) return;
-        clearTimeout(this.settling);
-        this.settling = setTimeout(() => this.read().then(() => this.emit("change")), 100);
+        clearTimeout(this.settle);
+        this.settle = setTimeout(() => this.read().then(() => this.emit("change")), 100);
       });
     } catch {
       setTimeout(() => this.watchLater(), REWATCH_MS);
