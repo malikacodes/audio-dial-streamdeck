@@ -1,9 +1,10 @@
 import { test } from "node:test";
 import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { once } from "node:events";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import assert from "node:assert/strict";
-import { appState, deviceState, afterKeys, volumeLink, muteLink, FineTune, TRUST_MS } from "../src/finetune.js";
+import { appState, deviceState, afterKeys, volumeLink, muteLink, FineTune, TRUST_MS, REWATCH_MS } from "../src/finetune.js";
 import { drawStrip } from "../src/strip.js";
 
 // The same shape FineTune saves in its settings.json, with the parts the
@@ -189,4 +190,42 @@ test("a settings file that can't be read is logged and the last good one is kept
 
   assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 23, muted: false });
   assert.ok(logs.some(line => line.includes("Couldn't read FineTune's settings")));
+});
+
+// FineTune installed after the plugin started: the folder isn't there at
+// first, and the watcher used to give up for good. Now it looks again.
+test("a settings folder that appears later gets watched and read", { timeout: 10000 }, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const folder = join(mkdtempSync(join(tmpdir(), "finetune-")), "FineTune");
+  const { fineTune, logs } = fineTuneIn(t, folder);
+  await fineTune.start();
+  assert.ok(logs.some(line => line.includes("isn't there yet")));
+  assert.equal(fineTune.watcher, undefined);
+
+  mkdirSync(folder);
+  writeFileSync(join(folder, "settings.json"), JSON.stringify(settings));
+  const changed = once(fineTune, "change");
+  t.mock.timers.tick(REWATCH_MS);
+  await changed;
+
+  assert.ok(fineTune.watcher);
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 23, muted: false });
+});
+
+// Still no folder at the next look: nothing happens, and it tries again
+// later instead of announcing a change nobody can see.
+test("while the folder is still missing it keeps looking quietly", { timeout: 10000 }, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const { fineTune, logs } = fineTuneIn(t, join(mkdtempSync(join(tmpdir(), "finetune-")), "FineTune"));
+  await fineTune.start();
+  let changes = 0;
+  fineTune.on("change", () => changes++);
+  const logged = logs.length;
+
+  t.mock.timers.tick(REWATCH_MS);
+  t.mock.timers.tick(REWATCH_MS);
+
+  assert.equal(changes, 0);
+  assert.equal(fineTune.watcher, undefined);
+  assert.equal(logs.length, logged);
 });

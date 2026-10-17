@@ -26,6 +26,9 @@ const SETTINGS = "settings.json";
 // for a blink in the middle of a turn.
 export const TRUST_MS = 1500;
 
+// How often to look again for FineTune's folder while it isn't there.
+export const REWATCH_MS = 10000;
+
 // What FineTune's settings say about one app, as { volume, muted } with
 // volume in percent. An app FineTune has never touched isn't in the file,
 // and that means full volume, not zero.
@@ -90,20 +93,36 @@ export class FineTune extends EventEmitter {
 
   async start() {
     await this.read();
-    // I watch the folder and not the file. Apps often save by writing a
-    // new file and swapping it in, and a watch on the old file would be
-    // left staring at something that's gone.
+    // No folder means FineTune has never run. The first turn of the dial
+    // opens it, and the strip says so until then.
+    if (!this.watchFolder()) this.logger.warn("FineTune's settings folder isn't there yet");
+  }
+
+  // I watch the folder and not the file. Apps often save by writing a
+  // new file and swapping it in, and a watch on the old file would be
+  // left staring at something that's gone. Says whether it could watch;
+  // when it couldn't, it looks again later, so installing FineTune while
+  // the plugin is running still works.
+  watchFolder() {
     try {
-      watch(this.folder, (_event, name) => {
+      this.watcher = watch(this.folder, (_event, name) => {
         if (name && name !== SETTINGS) return;
         clearTimeout(this.settling);
         this.settling = setTimeout(() => this.read().then(() => this.emit("change")), 100);
       });
     } catch {
-      // No folder means FineTune has never run. The first turn of the dial
-      // opens it, and the strip says so until then.
-      this.logger.warn("FineTune's settings folder isn't there yet");
+      setTimeout(() => this.watchLater(), REWATCH_MS);
+      return false;
     }
+    return true;
+  }
+
+  // The folder may have shown up with a settings file already in it, so
+  // the first look after finding it also reads.
+  async watchLater() {
+    if (!this.watchFolder()) return;
+    await this.read();
+    this.emit("change");
   }
 
   async read() {
