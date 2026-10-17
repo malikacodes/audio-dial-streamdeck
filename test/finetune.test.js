@@ -1,4 +1,7 @@
 import { test } from "node:test";
+import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import assert from "node:assert/strict";
 import { appState, deviceState, afterKeys, volumeLink, muteLink, FineTune, TRUST_MS } from "../src/finetune.js";
 import { drawStrip } from "../src/strip.js";
@@ -161,4 +164,29 @@ test("with no settings file, apps are at full volume and key presses guess nothi
   assert.equal(fineTune.device(monitor), null);
   fineTune.expectKeys(monitor, "up", 1);
   assert.equal(fineTune.mine.size, 0);
+});
+
+// A folder of my own to point FineTune at, so these tests never read the
+// real settings. The watcher it opens keeps the test run alive until it's
+// closed, so it's closed when the test ends, pass or fail.
+function fineTuneIn(t, folder) {
+  const logs = [];
+  const fineTune = new FineTune({ warn: message => logs.push(message), error: message => logs.push(message) }, folder);
+  t.after(() => fineTune.watcher?.close());
+  return { fineTune, logs };
+}
+
+// A settings file caught halfway through a save, or broken, used to be
+// dropped without a word. The last good numbers stay, and the log says why.
+test("a settings file that can't be read is logged and the last good one is kept", async t => {
+  const folder = mkdtempSync(join(tmpdir(), "finetune-"));
+  writeFileSync(join(folder, "settings.json"), JSON.stringify(settings));
+  const { fineTune, logs } = fineTuneIn(t, folder);
+  await fineTune.read();
+
+  writeFileSync(join(folder, "settings.json"), '{"appVolumes": ');
+  await fineTune.read();
+
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 23, muted: false });
+  assert.ok(logs.some(line => line.includes("Couldn't read FineTune's settings")));
 });

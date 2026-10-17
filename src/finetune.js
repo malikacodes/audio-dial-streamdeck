@@ -80,9 +80,12 @@ export class FineTune extends EventEmitter {
   // Set when a link couldn't be opened, which means FineTune isn't installed.
   missing = false;
 
-  constructor(logger) {
+  // The folder is only ever FineTune's own. The tests hand in one of
+  // theirs so they never touch the real settings.
+  constructor(logger, folder = FOLDER) {
     super();
     this.logger = logger;
+    this.folder = folder;
   }
 
   async start() {
@@ -91,7 +94,7 @@ export class FineTune extends EventEmitter {
     // new file and swapping it in, and a watch on the old file would be
     // left staring at something that's gone.
     try {
-      watch(FOLDER, (_event, name) => {
+      watch(this.folder, (_event, name) => {
         if (name && name !== SETTINGS) return;
         clearTimeout(this.settling);
         this.settling = setTimeout(() => this.read().then(() => this.emit("change")), 100);
@@ -105,9 +108,12 @@ export class FineTune extends EventEmitter {
 
   async read() {
     try {
-      this.settings = JSON.parse(await readFile(join(FOLDER, SETTINGS), "utf8"));
-    } catch {
-      // Caught halfway through a save, or not there. Keep the last good copy.
+      this.settings = JSON.parse(await readFile(join(this.folder, SETTINGS), "utf8"));
+    } catch (error) {
+      // Caught halfway through a save, or not there. Keep the last good
+      // copy, and say so, or a settings file that stays broken would look
+      // like a dial that's just stuck.
+      this.logger.warn(`Couldn't read FineTune's settings: ${error.message}`);
     }
   }
 
