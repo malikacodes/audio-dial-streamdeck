@@ -16,3 +16,4 @@ out twice.
 | 08 | 2026-10-17 | [When the helper dies](08-when-the-helper-dies.md) |
 | 09 | 2026-10-17 | [The watcher that gave up](09-the-watcher-that-gave-up.md) |
 | 10 | 2026-10-17 | [One timer per dial](10-one-timer-per-dial.md) |
+| 11 | 2026-10-17 | [Names that said the wrong thing](11-names-that-said-the-wrong-thing.md) |
