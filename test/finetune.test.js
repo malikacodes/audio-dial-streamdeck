@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { appState, deviceState, afterKeys, volumeLink, muteLink } from "../src/finetune.js";
+import { appState, deviceState, afterKeys, volumeLink, muteLink, FineTune, TRUST_MS } from "../src/finetune.js";
 import { drawStrip } from "../src/strip.js";
 
 // The same shape FineTune saves in its settings.json, with the parts the
@@ -97,4 +97,68 @@ test("the guess after a key press matches FineTune's real notches", () => {
 test("the guess stops at silent and at full", () => {
   assert.equal(afterKeys(6, -4), 0);
   assert.equal(afterKeys(94, 5), 100);
+});
+
+// The class, without start(): no folder is watched and no link is opened.
+// Time is the test's own (Date moves only when the test says), so the
+// edge of the trust window can be checked to the millisecond.
+function fineTuneAt(t, settings) {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  const fineTune = new FineTune({ warn() {}, error() {} });
+  fineTune.settings = settings;
+  return fineTune;
+}
+
+// Just after my own change, FineTune's file still has the old number.
+// Trusting the file would flick the strip back for a blink mid-turn.
+test("an app I just changed shows my number, not the file's", t => {
+  const fineTune = fineTuneAt(t, settings);
+  fineTune.mine.set("com.apple.Music", { volume: 40, muted: true, at: Date.now() });
+
+  t.mock.timers.tick(TRUST_MS - 1);
+
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 40, muted: true });
+});
+
+// Exactly TRUST_MS later my number has run out, and the file wins again.
+// If this were off by one, a number I set would stick forever or vanish early.
+test("at exactly TRUST_MS the file wins again", t => {
+  const fineTune = fineTuneAt(t, settings);
+  fineTune.mine.set("com.apple.Music", { volume: 40, muted: true, at: Date.now() });
+
+  t.mock.timers.tick(TRUST_MS);
+
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 23, muted: false });
+});
+
+test("the monitor follows the same trust window as an app", t => {
+  const fineTune = fineTuneAt(t, withMonitor);
+  fineTune.mine.set(monitor, { volume: 50, muted: false, at: Date.now() });
+
+  t.mock.timers.tick(TRUST_MS - 1);
+  assert.deepEqual(fineTune.device(monitor), { volume: 50, muted: false });
+  t.mock.timers.tick(1);
+  assert.deepEqual(fineTune.device(monitor), { volume: 31, muted: false });
+});
+
+// A press with the settings at "normal" lands one notch away, and that is
+// what the strip should show right away.
+test("a key press is expected to land one notch away", t => {
+  const fineTune = fineTuneAt(t, { ...withMonitor, appSettings: { mediaKeyControlEnabled: true, volumeHotkeyStep: "normal" } });
+
+  fineTune.expectKeys(monitor, "down", 1);
+
+  assert.deepEqual(fineTune.device(monitor), { volume: 25, muted: false });
+});
+
+// Without a settings file (FineTune never ran, so there's no folder) there
+// is nothing to guess from. The app is at full volume, the monitor isn't
+// FineTune's, and a key press leaves no expectation behind.
+test("with no settings file, apps are at full volume and key presses guess nothing", t => {
+  const fineTune = fineTuneAt(t, {});
+
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 100, muted: false });
+  assert.equal(fineTune.device(monitor), null);
+  fineTune.expectKeys(monitor, "up", 1);
+  assert.equal(fineTune.mine.size, 0);
 });
