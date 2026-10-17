@@ -79,8 +79,11 @@ class OutputDial extends SingletonAction {
   // dial has its own timer: with one shared by all of them, turning a
   // second dial cancelled the first one's redraw and left it on its guess.
   settleLater(target, ms) {
+    // The dial can leave while the turn was still drawing; no timer then.
+    if (!this.settings.has(target.id)) return;
     clearTimeout(this.settles.get(target.id));
     this.settles.set(target.id, setTimeout(() => {
+      this.settles.delete(target.id);
       this.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the dial: ${error.message}`));
     }, ms));
   }
