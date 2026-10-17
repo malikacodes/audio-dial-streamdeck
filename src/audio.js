@@ -6,6 +6,9 @@ import { createInterface } from "node:readline";
 import { EventEmitter } from "node:events";
 
 const RESTART_MS = 2000;
+// A helper that can't start would otherwise be tried and logged every 2
+// seconds for as long as the plugin runs.
+const MAX_RESTART_MS = 30000;
 
 export class Audio extends EventEmitter {
   devices = [];
@@ -16,6 +19,9 @@ export class Audio extends EventEmitter {
   // strip uses it to say so, because an empty device list alone looks
   // the same as no speakers plugged in.
   down = false;
+  // How long to wait before bringing the helper back. It doubles with
+  // each failure in a row and goes back to normal once it reports.
+  restartMs = RESTART_MS;
 
   constructor(helperPath, logger) {
     super();
@@ -53,6 +59,7 @@ export class Audio extends EventEmitter {
       this.canPressKeys = report.canPressKeys === true;
       this.fineTuneOpen = report.fineTuneOpen === true;
       this.down = false;
+      this.restartMs = RESTART_MS;
       this.emit("change");
     });
     createInterface({ input: helper.stderr }).on("line", line => this.logger.warn(`Helper: ${line}`));
@@ -74,7 +81,8 @@ export class Audio extends EventEmitter {
       this.fineTuneOpen = false;
       this.down = true;
       this.emit("change");
-      setTimeout(() => this.start(), RESTART_MS);
+      setTimeout(() => this.start(), this.restartMs);
+      this.restartMs = Math.min(this.restartMs * 2, MAX_RESTART_MS);
     });
   }
 

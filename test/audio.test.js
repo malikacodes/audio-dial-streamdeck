@@ -149,3 +149,54 @@ test("when the helper stops, what it reported is cleared and the strip is told",
   assert.equal(audio.fineTuneOpen, false);
   assert.equal(audio.down, true);
 });
+
+// A helper that can't start (I forgot "npm run helper") used to be tried
+// every 2 seconds forever. Each failed try in a row now waits twice as
+// long as the one before.
+test("a helper that keeps dying is restarted after longer and longer waits", { timeout: 10000 }, async t => {
+  const { audio } = startAudio(t, fakeHelper("process.exit(1);"));
+
+  const first = audio.helper;
+  await once(first, "close");
+  t.mock.timers.tick(1999);
+  assert.equal(audio.helper, first);
+  t.mock.timers.tick(1);
+  const second = audio.helper;
+  assert.notEqual(second, first);
+
+  await once(second, "close");
+  t.mock.timers.tick(2000);
+  assert.equal(audio.helper, second);
+  t.mock.timers.tick(2000);
+  const third = audio.helper;
+  assert.notEqual(third, second);
+
+  // It stops growing at 30 seconds, so it still comes back when I
+  // finally build the helper.
+  for (let wait = 8000; wait <= 30000; wait *= 2) {
+    await once(audio.helper, "close");
+    const before = audio.helper;
+    t.mock.timers.tick(wait - 1);
+    assert.equal(audio.helper, before);
+    t.mock.timers.tick(1);
+    assert.notEqual(audio.helper, before);
+  }
+  await once(audio.helper, "close");
+  const last = audio.helper;
+  t.mock.timers.tick(30000);
+  assert.notEqual(audio.helper, last);
+});
+
+// Once the helper has reported, it was working. If it dies later, that's a
+// new problem and gets the short wait again.
+test("a report from the helper puts the restart wait back to 2 seconds", { timeout: 10000 }, async t => {
+  const report = { devices: [], canPressKeys: false, fineTuneOpen: false };
+  const { audio } = startAudio(t, fakeHelper(`console.log(${JSON.stringify(JSON.stringify(report))}); process.exit(1);`));
+
+  for (let run = 0; run < 3; run++) {
+    const before = audio.helper;
+    await once(before, "close");
+    t.mock.timers.tick(2000);
+    assert.notEqual(audio.helper, before);
+  }
+});
