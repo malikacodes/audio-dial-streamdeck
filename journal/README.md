@@ -15,3 +15,4 @@ out twice.
 | 07 | 2026-10-17 | [Testing the part that talks to the helper](07-testing-the-helper-connection.md) |
 | 08 | 2026-10-17 | [When the helper dies](08-when-the-helper-dies.md) |
 | 09 | 2026-10-17 | [The watcher that gave up](09-the-watcher-that-gave-up.md) |
+| 10 | 2026-10-17 | [One timer per dial](10-one-timer-per-dial.md) |

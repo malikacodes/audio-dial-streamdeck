@@ -24,6 +24,8 @@ class OutputDial extends SingletonAction {
   settings = new Map();
   notices = new Map();
   lastImages = new Map();
+  // The timer that redraws each dial once its turning has stopped.
+  settles = new Map();
 
   // The volume I last asked each device for, by device id (see turnFrom).
   aims = new Map();
@@ -44,6 +46,8 @@ class OutputDial extends SingletonAction {
     this.settings.delete(ev.action.id);
     this.notices.delete(ev.action.id);
     this.lastImages.delete(ev.action.id);
+    clearTimeout(this.settles.get(ev.action.id));
+    this.settles.delete(ev.action.id);
   }
 
   // My monitor has no volume in macOS, but FineTune can turn it down in
@@ -68,8 +72,20 @@ class OutputDial extends SingletonAction {
     // checks that against what FineTune really saved.
     fineTune.expectKeys(device.id, name, times);
     await this.render(target);
-    clearTimeout(this.settle);
-    this.settle = setTimeout(() => this.render(target).catch(() => {}), TRUST_MS + 50);
+    this.settleLater(target, TRUST_MS + 50);
+  }
+
+  // Redraws a dial in a moment, once it has stopped being turned. Every
+  // dial has its own timer: with one shared by all of them, turning a
+  // second dial cancelled the first one's redraw and left it on its guess.
+  settleLater(target, ms) {
+    // The dial can leave while the turn was still drawing; no timer then.
+    if (!this.settings.has(target.id)) return;
+    clearTimeout(this.settles.get(target.id));
+    this.settles.set(target.id, setTimeout(() => {
+      this.settles.delete(target.id);
+      this.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the dial: ${error.message}`));
+    }, ms));
   }
 
   // Turning changes the volume of whatever is playing sound right now,
@@ -94,8 +110,7 @@ class OutputDial extends SingletonAction {
 
     // Once I've stopped turning, the strip goes back to the device's real
     // number, which can be a little off from the last one I asked for.
-    clearTimeout(this.settle);
-    this.settle = setTimeout(() => this.render(ev.action).catch(() => {}), AIM_MS + 50);
+    this.settleLater(ev.action, AIM_MS + 50);
   }
 
   // Pressing the dial mutes and unmutes.
@@ -135,7 +150,7 @@ class OutputDial extends SingletonAction {
       // Only clear it if a newer message hasn't replaced it.
       if (this.notices.get(target.id) !== text) return;
       this.notices.delete(target.id);
-      this.render(target).catch(() => {});
+      this.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the dial: ${error.message}`));
     }, NOTICE_MS);
   }
 
@@ -149,6 +164,9 @@ class OutputDial extends SingletonAction {
   }
 
   async render(target) {
+    // A redraw can still be on its way when the dial leaves the screen,
+    // and drawing it would put its picture back in lastImages for good.
+    if (!this.settings.has(target.id)) return;
     const settings = this.settings.get(target.id) ?? {};
     const device = audio.active;
     const { primary, secondary } = picks(settings);
@@ -236,6 +254,7 @@ class AppDial extends SingletonAction {
   }
 
   async render(target) {
+    if (!this.settings.has(target.id)) return;
     const { app, appName, volumeColor } = this.settings.get(target.id) ?? {};
     let view;
     if (fineTune.missing) view = { notice: "FineTune isn't installed" };
