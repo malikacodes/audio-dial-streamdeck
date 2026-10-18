@@ -108,6 +108,9 @@ class OutputDial extends SingletonAction {
   // Tapping the strip sends the sound to my other device. The strip
   // redraws on its own when the helper reports the switch.
   async onTouchTap(ev) {
+    // With no helper there are no devices, and "not connected" would be
+    // the wrong reason to give.
+    if (audio.down) return this.showNotice(ev.action, "Audio helper is off");
     const { device, problem } = tapTarget(audio.devices, this.settings.get(ev.action.id) ?? {});
     if (problem) return this.showNotice(ev.action, problem);
     audio.makeDefault(device);
@@ -163,7 +166,10 @@ class OutputDial extends SingletonAction {
     const borrowed = this.viaFineTune(device);
     if (borrowed) shown = { ...device, hasVolume: true, ...borrowed };
     else if (device?.hasVolume) shown = { ...device, volume: shownVolume(device.volume, this.aims.get(device.id), Date.now()) };
-    const image = asImage(drawStrip({ device: shown, slot, notice: this.notices.get(target.id), volumeColor, switchColor }));
+    // A message I'm showing for a moment wins. Without one, a stopped
+    // helper gets the strip to itself, since there's nothing to show.
+    const notice = this.notices.get(target.id) ?? (audio.down ? "Audio helper is off" : undefined);
+    const image = asImage(drawStrip({ device: shown, slot, notice, volumeColor, switchColor }));
     if (this.lastImages.get(target.id) === image) return;
     this.lastImages.set(target.id, image);
     await target.setFeedback({ canvas: image });

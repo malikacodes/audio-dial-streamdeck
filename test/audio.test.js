@@ -90,9 +90,10 @@ test("a line that isn't JSON is logged, and a helper that exits is started again
 
   await once(first, "close");
   assert.ok(logs.some(line => line.includes("isn't JSON: not json at all")));
-  // The bad line is skipped: no change was announced and nothing was stored.
+  // The bad line is skipped: nothing was stored, and the only change
+  // announced is the helper stopping.
   assert.deepEqual(audio.devices, []);
-  assert.equal(changes, 0);
+  assert.equal(changes, 1);
   assert.ok(logs.some(line => line.includes("stopped")));
   // Nothing has started again yet: it waits out the restart time first.
   assert.equal(readFileSync(runs, "utf8"), "x\n");
@@ -107,4 +108,125 @@ test("a line that isn't JSON is logged, and a helper that exits is started again
   t.mock.timers.tick(2000);
   for (let i = 0; i < 200; i++) await new Promise(resolve => setImmediate(resolve));
   assert.equal(readFileSync(runs, "utf8"), "x\nx\n");
+});
+
+// Valid JSON that isn't a report used to throw inside the line handler,
+// which takes the plugin down. Each of these is skipped and logged, and
+// the real report after them still gets through.
+test("lines that are JSON but not a report are logged and skipped", { timeout: 10000 }, async t => {
+  const report = { devices: [{ id: "a", name: "Speakers", isDefault: true }], canPressKeys: false, fineTuneOpen: false };
+  const lines = ["null", "42", "[]", "{}", '{"devices":5}', '{"apps":"nope"}', JSON.stringify(report)];
+  const { audio, logs } = startAudio(t, fakeHelper(`for (const line of ${JSON.stringify(lines)}) console.log(line); ${STAY_ALIVE}`));
+  let changes = 0;
+  audio.on("change", () => changes++);
+
+  await once(audio, "change");
+
+  assert.equal(changes, 1);
+  assert.deepEqual(audio.devices, report.devices);
+  assert.equal(logs.filter(line => line.includes("isn't a report")).length, 6);
+});
+
+// A helper that dies used to leave the last volume on the strip, and the
+// dial kept sending turns to nobody. Now the state goes with it, the
+// strip is told, and `down` says why the list is empty.
+test("when the helper stops, what it reported is cleared and the strip is told", { timeout: 10000 }, async t => {
+  const report = { devices: [{ id: "a", name: "Speakers", isDefault: true }], canPressKeys: true, fineTuneOpen: true };
+  const { audio } = startAudio(t, fakeHelper(`console.log(${JSON.stringify(JSON.stringify(report))}); setTimeout(() => process.exit(1), 50);`));
+  // Node's test clock is only for setTimeout in this process. The fake
+  // helper is its own process, so its timer is real.
+  await once(audio, "change");
+  assert.equal(audio.down, false);
+  const closed = once(audio.helper, "close");
+  const told = once(audio, "change");
+
+  await closed;
+  await told;
+
+  assert.deepEqual(audio.devices, []);
+  assert.equal(audio.active, null);
+  assert.equal(audio.canPressKeys, false);
+  assert.equal(audio.fineTuneOpen, false);
+  assert.equal(audio.down, true);
+});
+
+// A helper that can't start (I forgot "npm run helper") used to be tried
+// every 2 seconds forever. Each failed try in a row now waits twice as
+// long as the one before.
+test("a helper that keeps dying is restarted after longer and longer waits", { timeout: 10000 }, async t => {
+  const { audio } = startAudio(t, fakeHelper("process.exit(1);"));
+
+  const first = audio.helper;
+  await once(first, "close");
+  t.mock.timers.tick(1999);
+  assert.equal(audio.helper, first);
+  t.mock.timers.tick(1);
+  const second = audio.helper;
+  assert.notEqual(second, first);
+
+  await once(second, "close");
+  t.mock.timers.tick(2000);
+  assert.equal(audio.helper, second);
+  t.mock.timers.tick(2000);
+  const third = audio.helper;
+  assert.notEqual(third, second);
+
+  // It stops growing at 30 seconds, so it still comes back when I
+  // finally build the helper.
+  for (let wait = 8000; wait <= 30000; wait *= 2) {
+    await once(audio.helper, "close");
+    const before = audio.helper;
+    t.mock.timers.tick(wait - 1);
+    assert.equal(audio.helper, before);
+    t.mock.timers.tick(1);
+    assert.notEqual(audio.helper, before);
+  }
+  await once(audio.helper, "close");
+  const last = audio.helper;
+  t.mock.timers.tick(29999);
+  assert.equal(audio.helper, last);
+  t.mock.timers.tick(1);
+  assert.notEqual(audio.helper, last);
+  await once(audio.helper, "close");
+  const after = audio.helper;
+  t.mock.timers.tick(29999);
+  assert.equal(audio.helper, after);
+});
+
+// Once the helper has reported, it was working. If it dies later, that's a
+// new problem and gets the short wait again.
+test("a report from the helper puts the restart wait back to 2 seconds", { timeout: 10000 }, async t => {
+  const report = { devices: [], canPressKeys: false, fineTuneOpen: false };
+  const { audio } = startAudio(t, fakeHelper(`console.log(${JSON.stringify(JSON.stringify(report))}); process.exit(1);`));
+
+  for (let run = 0; run < 3; run++) {
+    const before = audio.helper;
+    await once(before, "close");
+    t.mock.timers.tick(2000);
+    assert.notEqual(audio.helper, before);
+  }
+});
+
+// The strip says "off" only for as long as it's true. The first run quits
+// without reporting; the second one reports, and that clears it.
+test("a report after a restart clears the helper-is-off state", { timeout: 10000 }, async t => {
+  const dir = mkdtempSync(join(tmpdir(), "audio-dial-runs-"));
+  const runs = join(dir, "runs");
+  const report = { devices: [{ id: "a", name: "Speakers", isDefault: true }], canPressKeys: false, fineTuneOpen: false };
+  const helper = fakeHelper(`
+    import { appendFileSync, existsSync } from "node:fs";
+    const before = existsSync(${JSON.stringify(runs)});
+    appendFileSync(${JSON.stringify(runs)}, "x\\n");
+    if (before) { console.log(${JSON.stringify(JSON.stringify(report))}); ${STAY_ALIVE} }
+    else process.exit(1);
+  `);
+  const { audio } = startAudio(t, helper);
+
+  await once(audio.helper, "close");
+  assert.equal(audio.down, true);
+  t.mock.timers.tick(2000);
+  await once(audio, "change");
+
+  assert.equal(audio.down, false);
+  assert.deepEqual(audio.devices, report.devices);
 });

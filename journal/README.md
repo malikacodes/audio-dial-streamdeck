@@ -13,3 +13,4 @@ out twice.
 | 05 | 2026-10-12 | [A volume for the monitor](05-a-volume-for-the-monitor.md) |
 | 06 | 2026-10-12 | [The dots were hiding](06-the-dots-were-hiding.md) |
 | 07 | 2026-10-17 | [Testing the part that talks to the helper](07-testing-the-helper-connection.md) |
+| 08 | 2026-10-17 | [When the helper dies](08-when-the-helper-dies.md) |
