@@ -13,7 +13,7 @@
 // for it, so FineTune gives it one, and that number is saved in here too.
 import { execFile } from "node:child_process";
 import { readFile } from "node:fs/promises";
-import { watch } from "node:fs";
+import { watch, existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { EventEmitter } from "node:events";
@@ -25,6 +25,9 @@ const SETTINGS = "settings.json";
 // to save, and without this the strip would jump back to the old number
 // for a blink in the middle of a turn.
 export const TRUST_MS = 1500;
+
+// How often to look again for FineTune's folder while it isn't there.
+export const REWATCH_MS = 10000;
 
 // What FineTune's settings say about one app, as { volume, muted } with
 // volume in percent. An app FineTune has never touched isn't in the file,
@@ -80,34 +83,77 @@ export class FineTune extends EventEmitter {
   // Set when a link couldn't be opened, which means FineTune isn't installed.
   missing = false;
 
-  constructor(logger) {
+  // The folder is only ever FineTune's own. The tests hand in one of
+  // theirs so they never touch the real settings.
+  constructor(logger, folder = FOLDER) {
     super();
     this.logger = logger;
+    this.folder = folder;
   }
 
   async start() {
     await this.read();
-    // I watch the folder and not the file. Apps often save by writing a
-    // new file and swapping it in, and a watch on the old file would be
-    // left staring at something that's gone.
+    // No folder means FineTune has never run. The first turn of the dial
+    // opens it, and the strip says so until then.
+    if (!this.watchFolder()) this.logger.warn("FineTune's settings folder isn't there yet");
+  }
+
+  // I watch the folder and not the file. Apps often save by writing a
+  // new file and swapping it in, and a watch on the old file would be
+  // left staring at something that's gone. Says whether it could watch;
+  // when it couldn't, it looks again later, so installing FineTune while
+  // the plugin is running still works.
+  watchFolder() {
     try {
-      watch(FOLDER, (_event, name) => {
+      this.watcher = watch(this.folder, (event, name) => {
+        // If the folder itself is deleted, macOS doesn't call it an error.
+        // The watcher just sits on a folder that's gone and reports it as
+        // a change to the folder's own name, so I look at every event.
+        if (!existsSync(this.folder)) return this.unwatch(this.watcher);
         if (name && name !== SETTINGS) return;
         clearTimeout(this.settling);
         this.settling = setTimeout(() => this.read().then(() => this.emit("change")), 100);
       });
     } catch {
-      // No folder means FineTune has never run. The first turn of the dial
-      // opens it, and the strip says so until then.
-      this.logger.warn("FineTune's settings folder isn't there yet");
+      setTimeout(() => this.watchLater(), REWATCH_MS);
+      return false;
     }
+    // Without a listener, an error on a watcher is thrown at the whole
+    // plugin.
+    const watcher = this.watcher;
+    watcher.on("error", error => {
+      this.logger.warn(`Lost the watch on FineTune's settings folder: ${error.message}`);
+      this.unwatch(watcher);
+    });
+    return true;
+  }
+
+  // A watcher that has failed is done. I let go of it and start over like
+  // the folder had never been there. Only the watcher I'm holding counts,
+  // so a second error from one I already dropped can't set up another.
+  unwatch(watcher) {
+    if (watcher !== this.watcher) return;
+    watcher.close();
+    this.watcher = null;
+    setTimeout(() => this.watchLater(), REWATCH_MS);
+  }
+
+  // The folder may have shown up with a settings file already in it, so
+  // the first look after finding it also reads.
+  async watchLater() {
+    if (!this.watchFolder()) return;
+    await this.read();
+    this.emit("change");
   }
 
   async read() {
     try {
-      this.settings = JSON.parse(await readFile(join(FOLDER, SETTINGS), "utf8"));
-    } catch {
-      // Caught halfway through a save, or not there. Keep the last good copy.
+      this.settings = JSON.parse(await readFile(join(this.folder, SETTINGS), "utf8"));
+    } catch (error) {
+      // Caught halfway through a save, or not there. Keep the last good
+      // copy, and say so, or a settings file that stays broken would look
+      // like a dial that's just stuck.
+      this.logger.warn(`Couldn't read FineTune's settings: ${error.message}`);
     }
   }
 

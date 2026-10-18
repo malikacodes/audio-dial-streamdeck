@@ -1,6 +1,10 @@
 import { test } from "node:test";
+import { mkdtempSync, writeFileSync, mkdirSync, rmSync } from "node:fs";
+import { once } from "node:events";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import assert from "node:assert/strict";
-import { appState, deviceState, afterKeys, volumeLink, muteLink } from "../src/finetune.js";
+import { appState, deviceState, afterKeys, volumeLink, muteLink, FineTune, TRUST_MS, REWATCH_MS } from "../src/finetune.js";
 import { drawStrip } from "../src/strip.js";
 
 // The same shape FineTune saves in its settings.json, with the parts the
@@ -97,4 +101,190 @@ test("the guess after a key press matches FineTune's real notches", () => {
 test("the guess stops at silent and at full", () => {
   assert.equal(afterKeys(6, -4), 0);
   assert.equal(afterKeys(94, 5), 100);
+});
+
+// The class, without start(): no folder is watched and no link is opened.
+// Time is the test's own (Date moves only when the test says), so the
+// edge of the trust window can be checked to the millisecond.
+function fineTuneAt(t, settings) {
+  t.mock.timers.enable({ apis: ["Date"], now: 1_000_000 });
+  const fineTune = new FineTune({ warn() {}, error() {} });
+  fineTune.settings = settings;
+  return fineTune;
+}
+
+// Just after my own change, FineTune's file still has the old number.
+// Trusting the file would flick the strip back for a blink mid-turn.
+test("an app I just changed shows my number, not the file's", t => {
+  const fineTune = fineTuneAt(t, settings);
+  fineTune.mine.set("com.apple.Music", { volume: 40, muted: true, at: Date.now() });
+
+  t.mock.timers.tick(TRUST_MS - 1);
+
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 40, muted: true });
+});
+
+// Exactly TRUST_MS later my number has run out, and the file wins again.
+// If this were off by one, a number I set would stick forever or vanish early.
+test("at exactly TRUST_MS the file wins again", t => {
+  const fineTune = fineTuneAt(t, settings);
+  fineTune.mine.set("com.apple.Music", { volume: 40, muted: true, at: Date.now() });
+
+  t.mock.timers.tick(TRUST_MS);
+
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 23, muted: false });
+});
+
+test("the monitor follows the same trust window as an app", t => {
+  const fineTune = fineTuneAt(t, withMonitor);
+  fineTune.mine.set(monitor, { volume: 50, muted: false, at: Date.now() });
+
+  t.mock.timers.tick(TRUST_MS - 1);
+  assert.deepEqual(fineTune.device(monitor), { volume: 50, muted: false });
+  t.mock.timers.tick(1);
+  assert.deepEqual(fineTune.device(monitor), { volume: 31, muted: false });
+});
+
+// A press with the settings at "normal" lands one notch away, and that is
+// what the strip should show right away.
+test("a key press is expected to land one notch away", t => {
+  const fineTune = fineTuneAt(t, { ...withMonitor, appSettings: { mediaKeyControlEnabled: true, volumeHotkeyStep: "normal" } });
+
+  fineTune.expectKeys(monitor, "down", 1);
+
+  assert.deepEqual(fineTune.device(monitor), { volume: 25, muted: false });
+});
+
+// Without a settings file (FineTune never ran, so there's no folder) there
+// is nothing to guess from. The app is at full volume, the monitor isn't
+// FineTune's, and a key press leaves no expectation behind.
+test("with no settings file, apps are at full volume and key presses guess nothing", t => {
+  const fineTune = fineTuneAt(t, {});
+
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 100, muted: false });
+  assert.equal(fineTune.device(monitor), null);
+  fineTune.expectKeys(monitor, "up", 1);
+  assert.equal(fineTune.mine.size, 0);
+});
+
+// A folder of my own to point FineTune at, so these tests never read the
+// real settings. The watcher it opens keeps the test run alive until it's
+// closed, so it's closed when the test ends, pass or fail.
+function fineTuneIn(t, folder) {
+  const logs = [];
+  const fineTune = new FineTune({ warn: message => logs.push(message), error: message => logs.push(message) }, folder);
+  t.after(() => fineTune.watcher?.close());
+  return { fineTune, logs };
+}
+
+// A settings file caught halfway through a save, or broken, used to be
+// dropped without a word. The last good numbers stay, and the log says why.
+test("a settings file that can't be read is logged and the last good one is kept", async t => {
+  const folder = mkdtempSync(join(tmpdir(), "finetune-"));
+  writeFileSync(join(folder, "settings.json"), JSON.stringify(settings));
+  const { fineTune, logs } = fineTuneIn(t, folder);
+  await fineTune.read();
+
+  writeFileSync(join(folder, "settings.json"), '{"appVolumes": ');
+  await fineTune.read();
+
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 23, muted: false });
+  assert.ok(logs.some(line => line.includes("Couldn't read FineTune's settings")));
+});
+
+// FineTune installed after the plugin started: the folder isn't there at
+// first, and the watcher used to give up for good. Now it looks again.
+test("a settings folder that appears later gets watched and read", { timeout: 10000 }, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const folder = join(mkdtempSync(join(tmpdir(), "finetune-")), "FineTune");
+  const { fineTune, logs } = fineTuneIn(t, folder);
+  await fineTune.start();
+  assert.ok(logs.some(line => line.includes("isn't there yet")));
+  assert.equal(fineTune.watcher, undefined);
+
+  mkdirSync(folder);
+  writeFileSync(join(folder, "settings.json"), JSON.stringify(settings));
+  const changed = once(fineTune, "change");
+  t.mock.timers.tick(REWATCH_MS);
+  await changed;
+
+  assert.ok(fineTune.watcher);
+  assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 23, muted: false });
+});
+
+// Still no folder at the next look: nothing happens, and it tries again
+// later instead of announcing a change nobody can see.
+test("while the folder is still missing it keeps looking quietly", { timeout: 10000 }, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const folder = join(mkdtempSync(join(tmpdir(), "finetune-")), "FineTune");
+  const { fineTune, logs } = fineTuneIn(t, folder);
+  await fineTune.start();
+  let changes = 0;
+  fineTune.on("change", () => changes++);
+  const logged = logs.length;
+
+  t.mock.timers.tick(REWATCH_MS);
+  t.mock.timers.tick(REWATCH_MS);
+
+  assert.equal(changes, 0);
+  assert.equal(fineTune.watcher, undefined);
+  assert.equal(logs.length, logged);
+
+  // It really did look again: the folder shows up now and the next look finds it.
+  mkdirSync(folder);
+  t.mock.timers.tick(REWATCH_MS);
+  await once(fineTune, "change");
+  assert.ok(fineTune.watcher);
+});
+
+// A watcher with no error listener turns any hiccup (the folder deleted
+// under it, say) into an uncaught error that closes the plugin. Now it's
+// logged, the dead watcher is let go, and a new one is set up.
+test("a watcher error is logged and the folder is watched again", { timeout: 10000 }, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const folder = mkdtempSync(join(tmpdir(), "finetune-"));
+  writeFileSync(join(folder, "settings.json"), JSON.stringify(settings));
+  const { fineTune, logs } = fineTuneIn(t, folder);
+  await fineTune.start();
+  const dead = fineTune.watcher;
+  const changed = once(fineTune, "change");
+  let changes = 0;
+  fineTune.on("change", () => changes++);
+
+  dead.emit("error", new Error("folder went away"));
+  // A second error from the same dead watcher must not set up a second one.
+  dead.emit("error", new Error("again"));
+  assert.ok(logs.some(line => line.includes("folder went away")));
+  assert.equal(fineTune.watcher, null);
+  t.mock.timers.tick(REWATCH_MS);
+  await changed;
+
+  assert.ok(fineTune.watcher);
+  assert.notEqual(fineTune.watcher, dead);
+  // Each look that finds the folder announces a change, and there was one look.
+  await new Promise(resolve => setImmediate(resolve));
+  assert.equal(changes, 1);
+});
+
+// The folder being deleted while the plugin runs (FineTune uninstalled and
+// cleaned up). The watcher doesn't error, it just goes deaf.
+test("deleting the settings folder makes the plugin look for it again", { timeout: 10000 }, async t => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
+  const folder = mkdtempSync(join(tmpdir(), "finetune-"));
+  writeFileSync(join(folder, "settings.json"), JSON.stringify(settings));
+  const { fineTune } = fineTuneIn(t, folder);
+  await fineTune.start();
+
+  // The OS needs a moment before it reports on a brand new watcher. The
+  // test clock has the timers, so this waits on the real one.
+  const started = Date.now();
+  while (Date.now() - started < 500) await new Promise(resolve => setImmediate(resolve));
+  rmSync(folder, { recursive: true });
+  while (fineTune.watcher) await new Promise(resolve => setImmediate(resolve));
+
+  mkdirSync(folder);
+  const changed = once(fineTune, "change");
+  t.mock.timers.tick(REWATCH_MS);
+  await changed;
+  assert.ok(fineTune.watcher);
 });
