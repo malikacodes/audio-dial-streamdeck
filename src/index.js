@@ -268,16 +268,16 @@ class AppDial extends SingletonAction {
   }
 }
 
-const dial = new (action({ UUID: "com.malikacodes.audio-dial.output" })(OutputDial))();
+const outputDial = new (action({ UUID: "com.malikacodes.audio-dial.output" })(OutputDial))();
 const appDial = new (action({ UUID: "com.malikacodes.audio-dial.app" })(AppDial))();
-streamDeck.actions.registerAction(dial);
+streamDeck.actions.registerAction(outputDial);
 streamDeck.actions.registerAction(appDial);
 
 // FineTune's numbers changed, by this dial or by me in FineTune's menu.
 // The Output Dial redraws too, for the monitor volume it borrows.
 fineTune.on("change", () => {
-  for (const target of dial.actions) {
-    dial.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the dial: ${error.message}`));
+  for (const target of outputDial.actions) {
+    outputDial.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the dial: ${error.message}`));
   }
   for (const target of appDial.actions) {
     appDial.render(target).catch(error => streamDeck.logger.warn(`Couldn't redraw the app dial: ${error.message}`));
@@ -287,9 +287,9 @@ fineTune.on("change", () => {
 // Redraw every copy of the dial whenever anything about sound changes,
 // whoever changed it: the dial, the keyboard volume keys or the menu bar.
 audio.on("change", () => {
-  for (const target of dial.actions) {
-    dial.syncPicks(target)
-      .then(() => dial.render(target))
+  for (const target of outputDial.actions) {
+    outputDial.syncPicks(target)
+      .then(() => outputDial.render(target))
       .catch(error => streamDeck.logger.warn(`Couldn't redraw the dial: ${error.message}`));
   }
 });

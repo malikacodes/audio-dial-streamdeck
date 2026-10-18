@@ -78,8 +78,8 @@ export function muteLink(appId, muted) {
 
 export class FineTune extends EventEmitter {
   settings = {};
-  // My own recent changes, by app id: { volume, muted, at }.
-  mine = new Map();
+  // My own recent changes, by app or device id: { volume, muted, at }.
+  myChanges = new Map();
   // Set when a link couldn't be opened, which means FineTune isn't installed.
   missing = false;
 
@@ -111,8 +111,8 @@ export class FineTune extends EventEmitter {
         // a change to the folder's own name, so I look at every event.
         if (!existsSync(this.folder)) return this.unwatch(this.watcher);
         if (name && name !== SETTINGS) return;
-        clearTimeout(this.settling);
-        this.settling = setTimeout(() => this.read().then(() => this.emit("change")), 100);
+        clearTimeout(this.settle);
+        this.settle = setTimeout(() => this.read().then(() => this.emit("change")), 100);
       });
     } catch {
       setTimeout(() => this.watchLater(), REWATCH_MS);
@@ -157,9 +157,16 @@ export class FineTune extends EventEmitter {
     }
   }
 
+  // My own change for this id, if it's recent enough to be trusted over
+  // the file (see TRUST_MS), or undefined.
+  recent(id) {
+    const mine = this.myChanges.get(id);
+    return mine && Date.now() - mine.at < TRUST_MS ? mine : undefined;
+  }
+
   state(appId) {
-    const mine = this.mine.get(appId);
-    if (mine && Date.now() - mine.at < TRUST_MS) return { volume: mine.volume, muted: mine.muted };
+    const mine = this.recent(appId);
+    if (mine) return { volume: mine.volume, muted: mine.muted };
     return appState(this.settings, appId);
   }
 
@@ -167,8 +174,8 @@ export class FineTune extends EventEmitter {
   // the number it expects wins over the file.
   device(deviceId) {
     const saved = deviceState(this.settings, deviceId);
-    const mine = this.mine.get(deviceId);
-    if (saved && mine && Date.now() - mine.at < TRUST_MS) return { volume: mine.volume, muted: mine.muted };
+    const mine = this.recent(deviceId);
+    if (saved && mine) return { volume: mine.volume, muted: mine.muted };
     return saved;
   }
 
@@ -184,19 +191,19 @@ export class FineTune extends EventEmitter {
   expectKeys(deviceId, name, times) {
     const now = this.device(deviceId);
     if (!now || now.muted) return;
-    if (name === "mute") this.mine.set(deviceId, { ...now, muted: true, at: Date.now() });
+    if (name === "mute") this.myChanges.set(deviceId, { ...now, muted: true, at: Date.now() });
     else if (this.settings?.appSettings?.volumeHotkeyStep === "normal") {
-      this.mine.set(deviceId, { ...now, volume: afterKeys(now.volume, name === "up" ? times : -times), at: Date.now() });
+      this.myChanges.set(deviceId, { ...now, volume: afterKeys(now.volume, name === "up" ? times : -times), at: Date.now() });
     }
   }
 
   setVolume(appId, volume) {
-    this.mine.set(appId, { ...this.state(appId), volume, at: Date.now() });
+    this.myChanges.set(appId, { ...this.state(appId), volume, at: Date.now() });
     this.open(volumeLink(appId, volume));
   }
 
   setMuted(appId, muted) {
-    this.mine.set(appId, { ...this.state(appId), muted, at: Date.now() });
+    this.myChanges.set(appId, { ...this.state(appId), muted, at: Date.now() });
     this.open(muteLink(appId, muted));
   }
 

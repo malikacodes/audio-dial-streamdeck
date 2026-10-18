@@ -117,7 +117,7 @@ function fineTuneAt(t, settings) {
 // Trusting the file would flick the strip back for a blink mid-turn.
 test("an app I just changed shows my number, not the file's", t => {
   const fineTune = fineTuneAt(t, settings);
-  fineTune.mine.set("com.apple.Music", { volume: 40, muted: true, at: Date.now() });
+  fineTune.myChanges.set("com.apple.Music", { volume: 40, muted: true, at: Date.now() });
 
   t.mock.timers.tick(TRUST_MS - 1);
 
@@ -128,7 +128,7 @@ test("an app I just changed shows my number, not the file's", t => {
 // If this were off by one, a number I set would stick forever or vanish early.
 test("at exactly TRUST_MS the file wins again", t => {
   const fineTune = fineTuneAt(t, settings);
-  fineTune.mine.set("com.apple.Music", { volume: 40, muted: true, at: Date.now() });
+  fineTune.myChanges.set("com.apple.Music", { volume: 40, muted: true, at: Date.now() });
 
   t.mock.timers.tick(TRUST_MS);
 
@@ -137,7 +137,7 @@ test("at exactly TRUST_MS the file wins again", t => {
 
 test("the monitor follows the same trust window as an app", t => {
   const fineTune = fineTuneAt(t, withMonitor);
-  fineTune.mine.set(monitor, { volume: 50, muted: false, at: Date.now() });
+  fineTune.myChanges.set(monitor, { volume: 50, muted: false, at: Date.now() });
 
   t.mock.timers.tick(TRUST_MS - 1);
   assert.deepEqual(fineTune.device(monitor), { volume: 50, muted: false });
@@ -164,7 +164,7 @@ test("with no settings file, apps are at full volume and key presses guess nothi
   assert.deepEqual(fineTune.state("com.apple.Music"), { volume: 100, muted: false });
   assert.equal(fineTune.device(monitor), null);
   fineTune.expectKeys(monitor, "up", 1);
-  assert.equal(fineTune.mine.size, 0);
+  assert.equal(fineTune.myChanges.size, 0);
 });
 
 // A folder of my own to point FineTune at, so these tests never read the
